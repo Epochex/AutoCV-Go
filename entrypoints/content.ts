@@ -168,7 +168,7 @@ function fillElement(element: HTMLElement, value: string, overwrite: boolean): {
 }
 
 function fillMatches(matches: FieldMatch[], overwrite: boolean): FillResult {
-  const result: FillResult = { filled: 0, skipped: 0, failed: [] };
+  const result: FillResult = { filled: 0, skipped: 0, filledFieldIds: [], skippedFieldIds: [], failed: [] };
   for (const match of matches) {
     const element = document.querySelector<HTMLElement>(`[${FIELD_ID_ATTRIBUTE}="${CSS.escape(match.fieldId)}"]`);
     if (!element) {
@@ -176,8 +176,13 @@ function fillMatches(matches: FieldMatch[], overwrite: boolean): FillResult {
       continue;
     }
     const outcome = fillElement(element, match.value, overwrite);
-    if (outcome.ok) result.filled += 1;
-    else if (outcome.reason === '字段已有内容') result.skipped += 1;
+    if (outcome.ok) {
+      result.filled += 1;
+      result.filledFieldIds.push(match.fieldId);
+    } else if (outcome.reason === '字段已有内容') {
+      result.skipped += 1;
+      result.skippedFieldIds.push(match.fieldId);
+    }
     else result.failed.push({ fieldId: match.fieldId, reason: outcome.reason || '填写失败' });
   }
   return result;
@@ -205,9 +210,9 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
-      if (message.type === 'APPLYFLOW_SCAN') return Promise.resolve(scanPage());
-      if (message.type === 'APPLYFLOW_FILL') return Promise.resolve(fillMatches(message.matches, message.overwrite));
-      if (message.type === 'APPLYFLOW_AUTO_RUN') return runAutomaticFill().then(() => ({ ok: true }));
+      if (message.type === 'AUTOCV_SCAN') return Promise.resolve(scanPage());
+      if (message.type === 'AUTOCV_FILL') return Promise.resolve(fillMatches(message.matches, message.overwrite));
+      if (message.type === 'AUTOCV_AUTO_RUN') return runAutomaticFill().then(() => ({ ok: true }));
       return undefined;
     });
 

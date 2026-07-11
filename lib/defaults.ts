@@ -68,7 +68,7 @@ export const DEFAULT_PROFILE: ResumeProfile = {
 };
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
-  autoFillJobPages: true,
+  autoFillJobPages: false,
   useAiForAmbiguousFields: true,
   overwriteExisting: false,
   ai: {

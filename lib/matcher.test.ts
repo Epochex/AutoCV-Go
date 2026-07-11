@@ -51,4 +51,11 @@ describe('matchFields', () => {
     profile.basics.phone = '13800000000';
     expect(matchFields([field({ label: '手机号', currentValue: '13900000000' })], profile)).toEqual([]);
   });
+
+  it('does not map projectName fields to the candidate full name', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.basics.fullName = '张三';
+    profile.projects = [];
+    expect(matchFields([field({ label: '项目名称', name: 'projectName1' })], profile)).toEqual([]);
+  });
 });

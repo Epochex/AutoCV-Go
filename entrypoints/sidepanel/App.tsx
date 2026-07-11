@@ -9,6 +9,7 @@ import {
 } from '../../lib/defaults';
 import { matchFields } from '../../lib/matcher';
 import { loadProfile, loadSettings, saveProfile, saveSettings } from '../../lib/storage';
+import ResumeImporter from './ResumeImporter';
 import type {
   EducationEntry,
   ExperienceEntry,
@@ -22,6 +23,7 @@ import type {
 
 type View = 'fill' | 'profile' | 'settings';
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; text: string } | null;
+type MatchApplyStatus = { tone: 'success' | 'warning' | 'error'; text: string };
 
 const BASIC_FIELDS: Array<{
   key: keyof ResumeProfile['basics'];
@@ -203,6 +205,7 @@ export default function App() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [matches, setMatches] = useState<FieldMatch[]>([]);
   const [fillResult, setFillResult] = useState<FillResult | null>(null);
+  const [matchApplyStatus, setMatchApplyStatus] = useState<Record<string, MatchApplyStatus>>({});
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
   const [lastRun, setLastRun] = useState<{ at?: string; filled?: number; matched?: number; url?: string } | null>(null);
@@ -231,9 +234,10 @@ export default function App() {
     setBusy(true);
     setNotice({ tone: 'info', text: fillAfterScan ? '正在扫描并匹配字段…' : '正在扫描当前页面…' });
     setFillResult(null);
+    setMatchApplyStatus({});
     try {
       const tabId = await getActiveTabId();
-      const scanResult = (await browser.tabs.sendMessage(tabId, { type: 'APPLYFLOW_SCAN' })) as ScanResult;
+      const scanResult = (await browser.tabs.sendMessage(tabId, { type: 'AUTOCV_SCAN' })) as ScanResult;
       setScan(scanResult);
       const ruleMatches = matchFields(scanResult.fields, profile);
       let aiMatches: FieldMatch[] = [];
@@ -262,7 +266,7 @@ export default function App() {
       if (fillAfterScan) {
         const safeMatches = combined.filter((match) => match.confidence >= 70);
         const result = (await browser.tabs.sendMessage(tabId, {
-          type: 'APPLYFLOW_FILL',
+          type: 'AUTOCV_FILL',
           matches: safeMatches,
           overwrite: settings.overwriteExisting,
         })) as FillResult;
@@ -276,6 +280,112 @@ export default function App() {
       }
     } catch (error) {
       setNotice({ tone: 'error', text: `无法操作当前页面：${error instanceof Error ? error.message : String(error)}。请刷新页面并确认扩展拥有站点权限。` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateMatchValue(fieldId: string, value: string) {
+    setMatches((current) =>
+      current.map((match) => (match.fieldId === fieldId ? { ...match, value } : match)),
+    );
+    setMatchApplyStatus((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  async function applySingleMatch(match: FieldMatch) {
+    if (!settings || busy) return;
+    if (!match.value.trim()) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [match.fieldId]: { tone: 'warning', text: '拟填内容为空，未应用。' },
+      }));
+      return;
+    }
+
+    setBusy(true);
+    setMatchApplyStatus((current) => {
+      const next = { ...current };
+      delete next[match.fieldId];
+      return next;
+    });
+    try {
+      const tabId = await getActiveTabId();
+      const result = (await browser.tabs.sendMessage(tabId, {
+        type: 'AUTOCV_FILL',
+        matches: [match],
+        overwrite: settings.overwriteExisting,
+      })) as FillResult;
+
+      const status: MatchApplyStatus = result.failed[0]
+        ? { tone: 'error', text: result.failed[0].reason }
+        : result.filled > 0
+          ? { tone: 'success', text: '已应用到当前网页。' }
+          : { tone: 'warning', text: '字段已有内容，已跳过。' };
+      setMatchApplyStatus((current) => ({ ...current, [match.fieldId]: status }));
+    } catch (error) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [match.fieldId]: {
+          tone: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        },
+      }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyAllMatches() {
+    if (!settings || busy) return;
+    const applicableMatches = matches.filter((match) => match.value.trim());
+    if (applicableMatches.length === 0) {
+      setNotice({ tone: 'warning', text: '当前匹配项没有可应用的内容。' });
+      return;
+    }
+
+    setBusy(true);
+    setFillResult(null);
+    setMatchApplyStatus({});
+    try {
+      const tabId = await getActiveTabId();
+      const result = (await browser.tabs.sendMessage(tabId, {
+        type: 'AUTOCV_FILL',
+        matches: applicableMatches,
+        overwrite: settings.overwriteExisting,
+      })) as FillResult;
+      setFillResult(result);
+
+      const failedByField = new Map(result.failed.map((failure) => [failure.fieldId, failure.reason]));
+      const skippedFields = new Set(result.skippedFieldIds);
+      setMatchApplyStatus(
+        Object.fromEntries(
+          applicableMatches.map((match) => {
+            const failure = failedByField.get(match.fieldId);
+            return [
+              match.fieldId,
+              failure
+                ? { tone: 'error', text: failure }
+                : skippedFields.has(match.fieldId)
+                  ? { tone: 'warning', text: '网页字段已有内容，已跳过。' }
+                  : { tone: 'success', text: '已应用到当前网页。' },
+            ];
+          }),
+        ),
+      );
+      setNotice({
+        tone: result.failed.length ? 'warning' : 'success',
+        text: `批量应用完成：填写 ${result.filled} 项，跳过 ${result.skipped} 项${result.failed.length ? `，失败 ${result.failed.length} 项` : ''}。不会自动提交。`,
+      });
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        text: `批量应用失败：${error instanceof Error ? error.message : String(error)}。`,
+      });
     } finally {
       setBusy(false);
     }
@@ -346,22 +456,68 @@ export default function App() {
                     <h2>匹配预览</h2>
                     <span>{matches.length} 已匹配 · {unresolvedCount} 待确认</span>
                   </div>
+                  {matches.length > 0 && (
+                    <button
+                      className="apply-all-button"
+                      type="button"
+                      disabled={busy || matches.every((match) => !match.value.trim())}
+                      onClick={() => void applyAllMatches()}
+                    >
+                      {busy ? '正在应用…' : '应用全部匹配'}
+                    </button>
+                  )}
                 </header>
                 <div className="match-list">
                   {matches.length === 0 && <p className="empty-state">没有匹配到可填写的空字段。请先补充简历资料或检查网页权限。</p>}
-                  {matches.map((match) => (
+                  {matches.map((match) => {
+                    const applyStatus = matchApplyStatus[match.fieldId];
+                    return (
                     <article className="match-row" key={match.fieldId}>
                       <div className="confidence-rail" style={{ '--confidence': `${match.confidence}%` } as React.CSSProperties} />
-                      <div>
-                        <strong>{match.fieldLabel}</strong>
-                        <span>← {match.profileLabel}</span>
-                        <small>{match.reason}</small>
-                      </div>
-                      <div className="confidence-capsule">
-                        {match.source === 'ai' ? 'AI' : '规则'} {match.confidence}
+                      <div className="match-content">
+                        <div className="match-heading">
+                          <div>
+                            <strong>{match.fieldLabel}</strong>
+                            <span>来源：{match.profileLabel}</span>
+                          </div>
+                          <div className="confidence-capsule">
+                            {match.source === 'ai' ? 'AI' : '规则'} {match.confidence}
+                          </div>
+                        </div>
+                        <label className="match-value-field">
+                          <span>即将填充的内容</span>
+                          <textarea
+                            value={match.value}
+                            rows={match.value.length > 80 || match.value.includes('\n') ? 4 : 2}
+                            onChange={(event) => updateMatchValue(match.fieldId, event.target.value)}
+                            aria-describedby={`match-help-${match.fieldId}`}
+                          />
+                        </label>
+                        <div className="match-footer">
+                          <small id={`match-help-${match.fieldId}`}>{match.reason} · 编辑仅影响本次填写</small>
+                          <button
+                            className="apply-one-button"
+                            type="button"
+                            disabled={busy || !match.value.trim()}
+                            onClick={() => void applySingleMatch(match)}
+                            aria-label={`应用到网页字段：${match.fieldLabel}`}
+                          >
+                            应用此项
+                          </button>
+                        </div>
+                        {applyStatus && (
+                          <p
+                            className={`match-status match-status--${applyStatus.tone}`}
+                            role="status"
+                            aria-live="polite"
+                          >
+                            {applyStatus.text}
+                          </p>
+                        )}
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -380,8 +536,17 @@ export default function App() {
             <section className="profile-intro">
               <span className="eyebrow">本地资料库</span>
               <h2>只维护一次，后续按字段复用</h2>
-              <p>内容保存在浏览器本地。AI 映射只发送字段名称，不发送这些具体值。</p>
+              <p>内容保存在浏览器本地。表单 AI 映射不发送具体值；使用 AI 导入简历时会单独提示并发送提取出的全文。</p>
             </section>
+
+            <ResumeImporter
+              profile={profile}
+              settings={settings}
+              onApply={(nextProfile, sourceName) => {
+                setProfile(nextProfile);
+                setNotice({ tone: 'success', text: `已把 ${sourceName} 的解析结果应用到编辑器，请核对后保存。` });
+              }}
+            />
 
             <ProfileSection title="基本信息">
               <div className="field-grid">
@@ -431,15 +596,15 @@ export default function App() {
           <div className="view-stack settings-view">
             <section className="settings-card">
               <span className="eyebrow">自动化</span>
-              <Toggle label="进入疑似网申页面后，自动扫描并填写空字段" checked={settings.autoFillJobPages} onChange={(autoFillJobPages) => setSettings({ ...settings, autoFillJobPages })} />
+              <Toggle label="进入疑似网申页面后自动填写（默认关闭；启用后网页可读取已写入表单的资料）" checked={settings.autoFillJobPages} onChange={(autoFillJobPages) => setSettings({ ...settings, autoFillJobPages })} dangerous />
               <Toggle label="允许 AI 处理规则无法判断的字段" checked={settings.useAiForAmbiguousFields} onChange={(useAiForAmbiguousFields) => setSettings({ ...settings, useAiForAmbiguousFields })} />
               <Toggle label="允许覆盖网页中已有内容" checked={settings.overwriteExisting} onChange={(overwriteExisting) => setSettings({ ...settings, overwriteExisting })} dangerous />
             </section>
 
             <section className="settings-card">
               <span className="eyebrow">OpenAI 兼容 API</span>
-              <h2>AI 只负责字段映射</h2>
-              <p>发送网页字段名称和简历字段结构，不发送姓名、电话、经历正文等具体值。</p>
+              <h2>使用你自己的模型服务</h2>
+              <p>网页字段映射只发送字段名称和资料结构，不发送具体值；仅当你在文件导入区主动开启 AI 解析时，才会发送提取出的简历全文。</p>
               <Toggle label="启用 API 兜底" checked={settings.ai.enabled} onChange={(enabled) => setSettings({ ...settings, ai: { ...settings.ai, enabled } })} />
               <div className="field-grid">
                 <Field label="接口地址" value={settings.ai.endpoint} onChange={(endpoint) => setSettings({ ...settings, ai: { ...settings.ai, endpoint } })} />

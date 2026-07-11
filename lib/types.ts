@@ -122,10 +122,12 @@ export type ScanResult = {
 export type FillResult = {
   filled: number;
   skipped: number;
+  filledFieldIds: string[];
+  skippedFieldIds: string[];
   failed: Array<{ fieldId: string; reason: string }>;
 };
 
 export type RuntimeMessage =
-  | { type: 'APPLYFLOW_SCAN' }
-  | { type: 'APPLYFLOW_FILL'; matches: FieldMatch[]; overwrite: boolean }
-  | { type: 'APPLYFLOW_AUTO_RUN' };
+  | { type: 'AUTOCV_SCAN' }
+  | { type: 'AUTOCV_FILL'; matches: FieldMatch[]; overwrite: boolean }
+  | { type: 'AUTOCV_AUTO_RUN' };

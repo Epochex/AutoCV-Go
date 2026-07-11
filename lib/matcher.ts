@@ -5,7 +5,7 @@ const BASIC_FIELDS: Array<{
   label: string;
   aliases: string[];
 }> = [
-  { key: 'fullName', label: '姓名', aliases: ['姓名', '真实姓名', '名字', 'name', 'full name'] },
+  { key: 'fullName', label: '姓名', aliases: ['姓名', '真实姓名', '名字', 'full name', 'fullname'] },
   { key: 'gender', label: '性别', aliases: ['性别', 'gender', 'sex'] },
   { key: 'birthDate', label: '出生日期', aliases: ['出生日期', '出生年月', '生日', 'birth date', 'birthday'] },
   { key: 'phone', label: '手机号', aliases: ['手机号', '手机号码', '联系电话', '电话', 'mobile', 'phone'] },
