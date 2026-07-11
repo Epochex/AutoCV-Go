@@ -1,4 +1,4 @@
-# AutoCV Go · 中文网申填充助手
+# AutoCV Go · 网申简历填充助手
 
 AutoCV Go 是一款本地优先的 Chrome / Edge 浏览器扩展，面向校招、实习和社会招聘网申场景。
 
