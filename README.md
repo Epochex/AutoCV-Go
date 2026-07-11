@@ -79,7 +79,7 @@ pnpm.cmd build
 以 DeepSeek 为例：
 
 - 接口地址：`https://api.deepseek.com/chat/completions`
-- 模型：`deepseek-chat`
+- 模型：`deepseek-v4-pro`
 - API Key：建议使用单独创建并设置额度限制的 Key
 
 API Key 保存在浏览器本地扩展存储中。项目没有用于接收简历或 API Key 的服务器。
@@ -93,11 +93,11 @@ API Key 保存在浏览器本地扩展存储中。项目没有用于接收简历
 - 自动填写模式默认关闭，可随时停用；
 - 字段记忆可以撤销或全部清空。
 
-## 当前边界
+## 当前存在的问题和限制
 
 文件上传、验证码和密码需要手动完成。跨域 iframe、closed Shadow DOM 以及部分高度定制的网页控件可能无法直接操作，但插件仍会尽量将其列为待处理字段。开放 Shadow DOM 已支持扫描。
 
-图片扫描版 PDF 没有可直接提取的文本，建议改用带文本层的 PDF、Markdown 或 LaTeX 文件。页面动态新增教育或项目经历后，需要重新扫描。
+图片扫描版 PDF 没有可直接提取的文本，建议改用带文本层的 PDF、Markdown 或 LaTeX 文件。页面动态新增教育或项目经历后，需要重新扫描(但是亲测pdf识别率更高)
 
 ## 开发与验证
 
