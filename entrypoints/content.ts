@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { matchFields } from '../lib/matcher';
+import { matchFieldsFromMemory } from '../lib/memory';
 import { loadProfile, loadSettings } from '../lib/storage';
 import type {
   FieldDescriptor,
@@ -11,7 +12,25 @@ import type {
 
 const FIELD_ID_ATTRIBUTE = 'data-autocv-field-id';
 const AUTO_RUN_REPORT_KEY = 'autocv.lastRun';
-const SKIPPED_INPUT_TYPES = new Set(['hidden', 'button', 'submit', 'reset', 'image', 'file', 'password']);
+const FIELD_SELECTOR =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="spinbutton"], [role="checkbox"], [role="radio"]';
+const NON_FIELD_INPUT_TYPES = new Set(['hidden', 'button', 'submit', 'reset', 'image']);
+const SAFE_TEXT_INPUT_TYPES = new Set([
+  '',
+  'date',
+  'datetime-local',
+  'email',
+  'month',
+  'number',
+  'search',
+  'tel',
+  'text',
+  'time',
+  'url',
+  'week',
+]);
+
+type FillCapability = Pick<FieldDescriptor, 'fillCapability' | 'manualReason'>;
 
 function isVisible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
@@ -23,18 +42,132 @@ function compactText(value: string | null | undefined, limit = 180): string {
   return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
+function labelText(element: HTMLElement): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll('input, textarea, select, button, [contenteditable], [role="textbox"], [role="combobox"]')
+    .forEach((control) => control.remove());
+  return compactText(clone.textContent);
+}
+
+function collectFieldElements(root: Document | ShadowRoot = document): HTMLElement[] {
+  const fields = Array.from(root.querySelectorAll<HTMLElement>(FIELD_SELECTOR));
+  for (const host of root.querySelectorAll<HTMLElement>('*')) {
+    if (host.shadowRoot) fields.push(...collectFieldElements(host.shadowRoot));
+  }
+  return fields;
+}
+
+function findScannedElement(fieldId: string): HTMLElement | null {
+  return collectFieldElements().find((element) => element.getAttribute(FIELD_ID_ATTRIBUTE) === fieldId) ?? null;
+}
+
+function isNativeField(
+  element: HTMLElement,
+): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement
+  );
+}
+
+function isFileInput(element: HTMLElement): element is HTMLInputElement {
+  return element instanceof HTMLInputElement && element.type === 'file';
+}
+
+function isRequired(element: HTMLElement, label = ''): boolean {
+  if (element.getAttribute('aria-required') === 'true') return true;
+  if (isNativeField(element) && element.required) return true;
+  const formItem = element.closest<HTMLElement>(
+    '.ant-form-item, .el-form-item, [class*="form-item"], [class*="formItem"], .form-group',
+  );
+  return Boolean(
+    /[＊*]/.test(label) ||
+    formItem?.classList.contains('is-required') ||
+      formItem?.querySelector('[class*="required"], .ant-form-item-required'),
+  );
+}
+
+/**
+ * Only controls that can be filled deterministically without opening a picker
+ * are marked automatic. Everything else remains visible in the scan so the
+ * side panel can guide the user through it manually.
+ */
+function fillCapabilityFor(element: HTMLElement): FillCapability {
+  if (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') {
+    return { fillCapability: 'manual', manualReason: '控件当前不可用，请先完成页面前置步骤' };
+  }
+
+  if (element.getAttribute('aria-readonly') === 'true') {
+    return { fillCapability: 'manual', manualReason: '只读控件需要通过网页提供的操作修改' };
+  }
+
+  if (isFileInput(element)) {
+    return { fillCapability: 'manual', manualReason: '文件上传需要用户手动选择本地文件' };
+  }
+
+  if (element instanceof HTMLInputElement) {
+    if (element.readOnly) {
+      return { fillCapability: 'manual', manualReason: '只读输入框需要通过网页控件选择' };
+    }
+    if (element.type === 'password') {
+      return { fillCapability: 'manual', manualReason: '敏感密码字段不会自动填写' };
+    }
+    if (element.type === 'checkbox' || element.type === 'radio') {
+      return { fillCapability: 'manual', manualReason: '选项控件需要用户确认后选择' };
+    }
+    if (!SAFE_TEXT_INPUT_TYPES.has(element.type)) {
+      return { fillCapability: 'manual', manualReason: `暂不支持自动操作 ${element.type || '自定义'} 控件` };
+    }
+    return { fillCapability: 'auto', manualReason: '' };
+  }
+
+  if (element instanceof HTMLTextAreaElement) {
+    return element.readOnly
+      ? { fillCapability: 'manual', manualReason: '只读输入框需要通过网页控件填写' }
+      : { fillCapability: 'auto', manualReason: '' };
+  }
+
+  if (element instanceof HTMLSelectElement) return { fillCapability: 'auto', manualReason: '' };
+  if (element.isContentEditable) return { fillCapability: 'auto', manualReason: '' };
+
+  return {
+    fillCapability: 'manual',
+    manualReason: '复杂网页控件无法可靠自动操作，请手动选择或粘贴',
+  };
+}
+
 function labelFor(element: HTMLElement): string {
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-    const labels = Array.from(element.labels ?? []).map((label) => compactText(label.textContent));
+    const labels = Array.from(element.labels ?? []).map((label) => labelText(label));
     if (labels.some(Boolean)) return labels.filter(Boolean).join(' / ');
   }
 
   const aria = element.getAttribute('aria-label');
   if (aria) return compactText(aria);
 
+  const labelledBy = element.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const root = element.getRootNode();
+    if (root instanceof Document || root instanceof ShadowRoot) {
+      const text = labelledBy
+        .split(/\s+/)
+        .map((id) => root.getElementById(id)?.textContent)
+        .map((value) => compactText(value))
+        .filter(Boolean)
+        .join(' / ');
+      if (text) return text;
+    }
+  }
+
   const id = element.id;
   if (id) {
-    const explicit = document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(id)}"]`);
+    const root = element.getRootNode();
+    const explicit =
+      root instanceof Document || root instanceof ShadowRoot
+        ? root.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(id)}"]`)
+        : null;
     if (explicit) return compactText(explicit.textContent);
   }
 
@@ -45,7 +178,7 @@ function labelFor(element: HTMLElement): string {
     const itemLabel = formItem.querySelector<HTMLElement>(
       'label, .ant-form-item-label, .el-form-item__label, [class*="label"]',
     );
-    if (itemLabel) return compactText(itemLabel.textContent);
+    if (itemLabel) return labelText(itemLabel);
   }
 
   const previous = element.previousElementSibling;
@@ -58,24 +191,36 @@ function sectionFor(element: HTMLElement): string {
   );
   if (!container) return '';
   const heading = container.querySelector<HTMLElement>('legend, h1, h2, h3, h4, [class*="title"]');
-  return compactText(heading?.textContent || container.textContent, 220);
+  return compactText(heading?.textContent, 220);
 }
 
 function getCurrentValue(element: HTMLElement): string {
   if (element instanceof HTMLInputElement) {
+    if (element.type === 'file') return Array.from(element.files ?? []).map((file) => file.name).join(', ');
+    if (element.type === 'password') return element.value ? '••••••••' : '';
     if (element.type === 'checkbox' || element.type === 'radio') return element.checked ? element.value || 'true' : '';
     return element.value;
   }
   if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return element.value;
-  return compactText(element.textContent, 500);
+  const ariaValue = element.getAttribute('aria-valuetext') || element.getAttribute('aria-value');
+  if (ariaValue) return compactText(ariaValue, 500);
+  const text = compactText(element.textContent, 500);
+  return /^(请选择|请选择.+|select|choose)$/i.test(text) ? '' : text;
 }
 
 function scanPage(): ScanResult {
-  const elements = Array.from(
-    document.querySelectorAll<HTMLElement>('input, textarea, select, [contenteditable="true"], [role="combobox"]'),
-  ).filter((element) => {
-    if (!isVisible(element) || element.getAttribute('aria-hidden') === 'true' || element.hasAttribute('disabled')) return false;
-    if (element instanceof HTMLInputElement && SKIPPED_INPUT_TYPES.has(element.type)) return false;
+  const elements = collectFieldElements().filter((element) => {
+    if (element instanceof HTMLInputElement && NON_FIELD_INPUT_TYPES.has(element.type)) return false;
+    // Native file inputs are commonly visually hidden behind an upload button,
+    // but are still real fields the user must complete.
+    if (!isFileInput(element) && (!isVisible(element) || element.getAttribute('aria-hidden') === 'true')) return false;
+    // Avoid reporting both a custom wrapper and the native control it contains.
+    if (
+      !isNativeField(element) &&
+      Array.from(element.querySelectorAll<HTMLElement>('input, textarea, select, [contenteditable]')).some(
+        (descendant) => isFileInput(descendant) || isVisible(descendant),
+      )
+    ) return false;
     return true;
   });
 
@@ -89,6 +234,7 @@ function scanPage(): ScanResult {
     const signature = (label || placeholder || name || `${element.tagName}-${index}`).toLowerCase().replace(/\s+/g, '');
     const occurrence = occurrenceMap.get(signature) ?? 0;
     occurrenceMap.set(signature, occurrence + 1);
+    const capability = fillCapabilityFor(element);
 
     return {
       id,
@@ -104,6 +250,8 @@ function scanPage(): ScanResult {
           : [],
       currentValue: getCurrentValue(element),
       occurrence,
+      required: isRequired(element, label),
+      ...capability,
     };
   });
 
@@ -129,15 +277,13 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
 }
 
 function fillElement(element: HTMLElement, value: string, overwrite: boolean): { ok: boolean; reason?: string } {
+  const capability = fillCapabilityFor(element);
+  if (capability.fillCapability === 'manual') return { ok: false, reason: capability.manualReason };
+
   const existing = getCurrentValue(element).trim();
   if (existing && !overwrite) return { ok: false, reason: '字段已有内容' };
 
   if (element instanceof HTMLInputElement) {
-    if (element.type === 'checkbox' || element.type === 'radio') {
-      const shouldCheck = ['true', '是', '已婚', '至今'].includes(value) || element.value === value;
-      if (shouldCheck !== element.checked) element.click();
-      return { ok: true };
-    }
     setNativeValue(element, value);
     return { ok: element.value === value };
   }
@@ -170,7 +316,7 @@ function fillElement(element: HTMLElement, value: string, overwrite: boolean): {
 function fillMatches(matches: FieldMatch[], overwrite: boolean): FillResult {
   const result: FillResult = { filled: 0, skipped: 0, filledFieldIds: [], skippedFieldIds: [], failed: [] };
   for (const match of matches) {
-    const element = document.querySelector<HTMLElement>(`[${FIELD_ID_ATTRIBUTE}="${CSS.escape(match.fieldId)}"]`);
+    const element = findScannedElement(match.fieldId);
     if (!element) {
       result.failed.push({ fieldId: match.fieldId, reason: '页面结构已变化，请重新扫描' });
       continue;
@@ -193,12 +339,20 @@ async function runAutomaticFill(): Promise<void> {
   if (!settings.autoFillJobPages) return;
   const scan = scanPage();
   if (!scan.likelyJobPage) return;
-  const matches = matchFields(scan.fields, profile).filter((match) => match.confidence >= 82);
+  const autoFields = scan.fields.filter((field) => field.fillCapability === 'auto');
+  const rememberedMatches = settings.rememberConfirmedMappings
+    ? await matchFieldsFromMemory(autoFields, profile, scan.url)
+    : [];
+  const rememberedFieldIds = new Set(rememberedMatches.map((match) => match.fieldId));
+  const ruleMatches = matchFields(
+    autoFields.filter((field) => !rememberedFieldIds.has(field.id)),
+    profile,
+  );
+  const matches = [...rememberedMatches, ...ruleMatches].filter((match) => match.confidence >= 82);
   const result = fillMatches(matches, settings.overwriteExisting);
   await browser.storage.local.set({
     [AUTO_RUN_REPORT_KEY]: {
       at: new Date().toISOString(),
-      url: scan.url,
       matched: matches.length,
       ...result,
     },

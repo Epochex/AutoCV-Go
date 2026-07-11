@@ -7,7 +7,7 @@
       body { max-width: 760px; margin: 32px auto; font-family: sans-serif; }
       section { padding: 16px; margin: 12px 0; border: 1px solid #ccc; }
       label { display: grid; gap: 4px; margin: 10px 0; }
-      input, textarea { padding: 8px; }
+      input, textarea, select, [role="combobox"] { padding: 8px; }
     </style>
   </head>
   <body>
@@ -17,6 +17,22 @@
       <label>姓名 <input name="fullName" /></label>
       <label>电子邮箱 <input name="email" type="email" /></label>
       <label>手机号 <input name="phone" type="tel" /></label>
+      <label>性别
+        <select name="gender" required>
+          <option value="">请选择</option>
+          <option>男</option>
+          <option>女</option>
+        </select>
+      </label>
+      <label>出生日期 <input name="birthDate" type="date" required /></label>
+      <label>简历附件 <input name="resumeFile" type="file" accept=".pdf,.doc,.docx" /></label>
+      <label>求职网站密码 <input name="accountPassword" type="password" /></label>
+      <div class="form-item">
+        <label id="city-label">期望城市</label>
+        <div role="combobox" aria-labelledby="city-label" aria-required="true" tabindex="0">请选择城市</div>
+      </div>
+      <label>推荐码 <input name="referral" disabled placeholder="选择推荐渠道后填写" /></label>
+      <label>补充说明 <textarea name="extraInfo" required></textarea></label>
     </section>
     <section class="project-experience">
       <h2>项目经历 01</h2>

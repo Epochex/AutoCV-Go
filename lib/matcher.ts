@@ -93,7 +93,8 @@ export function profileCandidates(profile: ResumeProfile): ProfileCandidate[] {
         const value = entry[key as keyof typeof entry];
         if (typeof value === 'string') {
           candidates.push({
-            key: `${category}.${repeatIndex}.${key}`,
+            // Entry ids preserve identity across reordering/deletion; array indexes do not.
+            key: `${category}.byId.${entry.id}.${key}`,
             label,
             aliases: [...aliases],
             value,
@@ -190,5 +191,20 @@ export function matchFields(fields: FieldDescriptor[], profile: ResumeProfile): 
 }
 
 export function resolveCandidate(profile: ResumeProfile, key: string): ProfileCandidate | undefined {
-  return profileCandidates(profile).find((candidate) => candidate.key === key);
+  const candidates = profileCandidates(profile);
+  const exact = candidates.find((candidate) => candidate.key === key);
+  if (exact) return exact;
+
+  // Memory written before stable ids used category.index.field. Resolve it once so a
+  // successful confirmation can transparently rewrite that entry with the stable key.
+  const legacy = /^(education|work|internship|projects|research|openSource)\.(\d+)\.([^.]+)$/.exec(key);
+  if (!legacy) return undefined;
+  const [, category, rawIndex, field] = legacy;
+  const repeatIndex = Number(rawIndex);
+  return candidates.find(
+    (candidate) =>
+      candidate.category === category &&
+      candidate.repeatIndex === repeatIndex &&
+      candidate.key.endsWith(`.${field}`),
+  );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PROFILE, emptyOpenSource, emptyProject, emptyResearch } from './defaults';
-import { matchFields } from './matcher';
+import { DEFAULT_PROFILE, emptyEducation, emptyOpenSource, emptyProject, emptyResearch } from './defaults';
+import { matchFields, profileCandidates, resolveCandidate } from './matcher';
 import type { FieldDescriptor, ResumeProfile } from './types';
 
 const field = (overrides: Partial<FieldDescriptor>): FieldDescriptor => ({
@@ -14,6 +14,9 @@ const field = (overrides: Partial<FieldDescriptor>): FieldDescriptor => ({
   options: [],
   currentValue: '',
   occurrence: 0,
+  required: false,
+  fillCapability: 'auto',
+  manualReason: '',
   ...overrides,
 });
 
@@ -84,5 +87,31 @@ describe('matchFields', () => {
 
     expect(matches.map((match) => match.value)).toEqual(['示例 SDK', 'Maintainer']);
     expect(matches.every((match) => match.profileKey.startsWith('openSource.'))).toBe(true);
+  });
+
+  it('uses stable entry ids and keeps a candidate key valid after repeated entries are reordered', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.education = [
+      { ...emptyEducation(), id: 'undergrad-id', school: '本科院校' },
+      { ...emptyEducation(), id: 'graduate-id', school: '硕士院校' },
+    ];
+    const stableKey = profileCandidates(profile).find((candidate) => candidate.value === '硕士院校')?.key;
+
+    expect(stableKey).toBe('education.byId.graduate-id.school');
+    profile.education.reverse();
+    expect(resolveCandidate(profile, stableKey!)?.value).toBe('硕士院校');
+  });
+
+  it('resolves legacy index keys but returns the new stable key', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.education = [
+      { ...emptyEducation(), id: 'undergrad-id', school: '本科院校' },
+      { ...emptyEducation(), id: 'graduate-id', school: '硕士院校' },
+    ];
+
+    expect(resolveCandidate(profile, 'education.1.school')).toMatchObject({
+      key: 'education.byId.graduate-id.school',
+      value: '硕士院校',
+    });
   });
 });

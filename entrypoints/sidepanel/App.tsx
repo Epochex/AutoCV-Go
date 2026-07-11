@@ -9,13 +9,22 @@ import {
   emptyProject,
   emptyResearch,
 } from '../../lib/defaults';
-import { matchFields } from '../../lib/matcher';
+import { matchFields, profileCandidates } from '../../lib/matcher';
+import {
+  clearMappingMemory,
+  getMappingMemoryStats,
+  matchFieldsFromMemory,
+  recordConfirmedMapping,
+  undoLastMappingChange,
+  type MappingMemoryStats,
+} from '../../lib/memory';
 import { loadProfile, loadSettings, saveProfile, saveSettings } from '../../lib/storage';
 import ResumeImporter from './ResumeImporter';
 import type {
   EducationEntry,
   ExperienceEntry,
   ExtensionSettings,
+  FieldDescriptor,
   FieldMatch,
   FillResult,
   OpenSourceEntry,
@@ -28,6 +37,7 @@ import type {
 type View = 'fill' | 'profile' | 'settings';
 type Notice = { tone: 'success' | 'warning' | 'error' | 'info'; text: string } | null;
 type MatchApplyStatus = { tone: 'success' | 'warning' | 'error'; text: string };
+type ManualFieldDraft = { profileKey: string; value: string };
 
 const BASIC_FIELDS: Array<{
   key: keyof ResumeProfile['basics'];
@@ -248,27 +258,70 @@ export default function App() {
   const [matches, setMatches] = useState<FieldMatch[]>([]);
   const [fillResult, setFillResult] = useState<FillResult | null>(null);
   const [matchApplyStatus, setMatchApplyStatus] = useState<Record<string, MatchApplyStatus>>({});
+  const [manualFieldDrafts, setManualFieldDrafts] = useState<Record<string, ManualFieldDraft>>({});
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
-  const [lastRun, setLastRun] = useState<{ at?: string; filled?: number; matched?: number; url?: string } | null>(null);
+  const [memoryStats, setMemoryStats] = useState<MappingMemoryStats | null>(null);
+  const [lastRun, setLastRun] = useState<{ at?: string; filled?: number; matched?: number } | null>(null);
 
   useEffect(() => {
-    Promise.all([loadProfile(), loadSettings(), browser.storage.local.get('autocv.lastRun')]).then(
-      ([loadedProfile, loadedSettings, report]) => {
+    Promise.all([loadProfile(), loadSettings(), browser.storage.local.get('autocv.lastRun'), getMappingMemoryStats()]).then(
+      ([loadedProfile, loadedSettings, report, loadedMemoryStats]) => {
         setProfile(loadedProfile);
         setSettings(loadedSettings);
         setLastRun((report['autocv.lastRun'] as typeof lastRun) ?? null);
+        setMemoryStats(loadedMemoryStats);
       },
     );
   }, []);
 
   const matchedFieldIds = useMemo(() => new Set(matches.map((match) => match.fieldId)), [matches]);
-  const unresolvedCount = scan ? scan.fields.filter((field) => !field.currentValue && !matchedFieldIds.has(field.id)).length : 0;
+  const unresolvedFields = useMemo(
+    () =>
+      (scan?.fields.filter((field) => !field.currentValue && !matchedFieldIds.has(field.id)) ?? [])
+        .slice()
+        .sort(
+          (left, right) =>
+            Number(right.required) - Number(left.required) ||
+            Number(left.fillCapability === 'manual') - Number(right.fillCapability === 'manual'),
+        ),
+    [matchedFieldIds, scan],
+  );
+  const candidates = useMemo(() => (profile ? profileCandidates(profile) : []), [profile]);
 
   async function getActiveTabId(): Promise<number> {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('无法获取当前网页标签');
     return tab.id;
+  }
+
+  async function rememberSuccessfulMappings(
+    scanSnapshot: ScanResult | null,
+    confirmedMatches: FieldMatch[],
+    result: FillResult,
+  ) {
+    if (!settings?.rememberConfirmedMappings || !scanSnapshot || result.filledFieldIds.length === 0) return;
+    try {
+      const succeeded = new Set(result.filledFieldIds);
+      const fieldsById = new Map(scanSnapshot.fields.map((field) => [field.id, field]));
+      for (const match of confirmedMatches) {
+        if (!succeeded.has(match.fieldId) || match.profileKey.startsWith('manual.')) continue;
+        const field = fieldsById.get(match.fieldId);
+        if (!field) continue;
+        await recordConfirmedMapping({
+          pageUrl: scanSnapshot.url,
+          field,
+          profileKey: match.profileKey,
+          explicitConfirmation: true,
+          fillSucceeded: true,
+        });
+      }
+      setMemoryStats(await getMappingMemoryStats());
+    } catch (error) {
+      // Filling succeeded already. Memory is best-effort and must never turn a
+      // successful page operation into a reported fill failure.
+      console.warn('[AutoCV Go] 无法更新本地字段记忆', error);
+    }
   }
 
   async function scanPage(fillAfterScan: boolean) {
@@ -277,14 +330,26 @@ export default function App() {
     setNotice({ tone: 'info', text: fillAfterScan ? '正在扫描并匹配字段…' : '正在扫描当前页面…' });
     setFillResult(null);
     setMatchApplyStatus({});
+    setManualFieldDrafts({});
     try {
       const tabId = await getActiveTabId();
       const scanResult = (await browser.tabs.sendMessage(tabId, { type: 'AUTOCV_SCAN' })) as ScanResult;
       setScan(scanResult);
-      const ruleMatches = matchFields(scanResult.fields, profile);
+      const autoFillableFields = scanResult.fields.filter((field) => field.fillCapability === 'auto');
+      const rememberedMatches = settings.rememberConfirmedMappings
+        ? await matchFieldsFromMemory(autoFillableFields, profile, scanResult.url)
+        : [];
+      const rememberedFieldIds = new Set(rememberedMatches.map((match) => match.fieldId));
+      const ruleMatches = matchFields(
+        autoFillableFields.filter((field) => !rememberedFieldIds.has(field.id)),
+        profile,
+      );
       let aiMatches: FieldMatch[] = [];
-      const unmatched = scanResult.fields.filter(
-        (field) => !field.currentValue && !ruleMatches.some((match) => match.fieldId === field.id),
+      const unmatched = autoFillableFields.filter(
+        (field) =>
+          !field.currentValue &&
+          !rememberedFieldIds.has(field.id) &&
+          !ruleMatches.some((match) => match.fieldId === field.id),
       );
 
       if (
@@ -300,7 +365,7 @@ export default function App() {
         }
       }
 
-      const combined = [...ruleMatches, ...aiMatches].filter(
+      const combined = [...rememberedMatches, ...ruleMatches, ...aiMatches].filter(
         (match, index, all) => all.findIndex((item) => item.fieldId === match.fieldId) === index,
       );
       setMatches(combined);
@@ -313,6 +378,7 @@ export default function App() {
           overwrite: settings.overwriteExisting,
         })) as FillResult;
         setFillResult(result);
+        await rememberSuccessfulMappings(scanResult, safeMatches, result);
         setNotice({
           tone: result.failed.length ? 'warning' : 'success',
           text: `已填写 ${result.filled} 项，跳过 ${result.skipped} 项${result.failed.length ? `，${result.failed.length} 项需手动处理` : ''}。不会自动提交。`,
@@ -322,6 +388,172 @@ export default function App() {
       }
     } catch (error) {
       setNotice({ tone: 'error', text: `无法操作当前页面：${error instanceof Error ? error.message : String(error)}。请刷新页面并确认扩展拥有站点权限。` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateManualField(fieldId: string, patch: Partial<ManualFieldDraft>) {
+    setManualFieldDrafts((current) => ({
+      ...current,
+      [fieldId]: { profileKey: '', value: '', ...current[fieldId], ...patch },
+    }));
+    setMatchApplyStatus((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  function selectManualCandidate(fieldId: string, profileKey: string) {
+    const candidate = candidates.find((item) => item.key === profileKey);
+    updateManualField(fieldId, { profileKey, value: candidate?.value ?? '' });
+  }
+
+  async function copyManualValue(fieldId: string) {
+    const value = manualFieldDrafts[fieldId]?.value.trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [fieldId]: { tone: 'success', text: '已复制，可粘贴到暂不支持自动填写的控件。' },
+      }));
+    } catch (error) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [fieldId]: {
+          tone: 'error',
+          text: `复制失败：${error instanceof Error ? error.message : String(error)}`,
+        },
+      }));
+    }
+  }
+
+  async function applyManualField(field: FieldDescriptor) {
+    if (!settings || busy) return;
+    if (field.fillCapability === 'manual') {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: { tone: 'warning', text: field.manualReason || '该控件需要复制后手动填写。' },
+      }));
+      return;
+    }
+    const draft = manualFieldDrafts[field.id];
+    if (!draft?.value.trim()) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: { tone: 'warning', text: '请先选择一条简历资料，或直接输入本次填写内容。' },
+      }));
+      return;
+    }
+
+    const candidate = candidates.find((item) => item.key === draft.profileKey);
+    const manualMatch: FieldMatch = {
+      fieldId: field.id,
+      profileKey: candidate?.key ?? `manual.${field.id}`,
+      fieldLabel: field.label || field.placeholder || field.name || '未命名字段',
+      profileLabel: candidate?.label ?? '本次手动填写',
+      value: draft.value,
+      confidence: 100,
+      source: 'rule',
+      reason: '用户手动选择简历资料',
+    };
+
+    setBusy(true);
+    setMatchApplyStatus((current) => {
+      const next = { ...current };
+      delete next[field.id];
+      return next;
+    });
+    try {
+      const tabId = await getActiveTabId();
+      const result = (await browser.tabs.sendMessage(tabId, {
+        type: 'AUTOCV_FILL',
+        matches: [manualMatch],
+        overwrite: settings.overwriteExisting,
+      })) as FillResult;
+      const failure = result.failed[0];
+      if (failure) {
+        setMatchApplyStatus((current) => ({
+          ...current,
+          [field.id]: { tone: 'error', text: failure.reason },
+        }));
+        return;
+      }
+
+      await rememberSuccessfulMappings(scan, [manualMatch], result);
+      setMatches((current) => [
+        ...current.filter((match) => match.fieldId !== field.id),
+        manualMatch,
+      ]);
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: result.filled > 0
+          ? { tone: 'success', text: '已应用到当前网页，可继续处理剩余字段。' }
+          : { tone: 'warning', text: '网页字段已有内容，已跳过。' },
+      }));
+    } catch (error) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: {
+          tone: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        },
+      }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmManualField(field: FieldDescriptor) {
+    if (!settings?.rememberConfirmedMappings || busy) return;
+    const draft = manualFieldDrafts[field.id];
+    if (!draft?.profileKey) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: { tone: 'warning', text: '请先选择这项内容来自哪条简历资料。' },
+      }));
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const tabId = await getActiveTabId();
+      const refreshed = (await browser.tabs.sendMessage(tabId, { type: 'AUTOCV_SCAN' })) as ScanResult;
+      const refreshedField = refreshed.fields.find((item) => item.id === field.id);
+      if (!refreshedField?.currentValue.trim()) {
+        setMatchApplyStatus((current) => ({
+          ...current,
+          [field.id]: { tone: 'warning', text: '还没有检测到网页中的已填内容，请先粘贴或完成选择。' },
+        }));
+        return;
+      }
+
+      const learned = await recordConfirmedMapping({
+        pageUrl: refreshed.url,
+        field: refreshedField,
+        profileKey: draft.profileKey,
+        explicitConfirmation: true,
+        fillSucceeded: true,
+      });
+      if (!learned) throw new Error('该字段缺少可用于记忆的稳定特征');
+      setScan(refreshed);
+      setMemoryStats(await getMappingMemoryStats());
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: { tone: 'success', text: '已检测到网页中的内容并记住这次对应关系。' },
+      }));
+      setNotice({ tone: 'success', text: '已确认手动填写并记住对应关系，可继续处理剩余字段。' });
+    } catch (error) {
+      setMatchApplyStatus((current) => ({
+        ...current,
+        [field.id]: {
+          tone: 'error',
+          text: `无法确认记忆：${error instanceof Error ? error.message : String(error)}`,
+        },
+      }));
     } finally {
       setBusy(false);
     }
@@ -363,6 +595,8 @@ export default function App() {
         overwrite: settings.overwriteExisting,
       })) as FillResult;
 
+      await rememberSuccessfulMappings(scan, [match], result);
+
       const status: MatchApplyStatus = result.failed[0]
         ? { tone: 'error', text: result.failed[0].reason }
         : result.filled > 0
@@ -401,6 +635,7 @@ export default function App() {
         overwrite: settings.overwriteExisting,
       })) as FillResult;
       setFillResult(result);
+      await rememberSuccessfulMappings(scan, applicableMatches, result);
 
       const failedByField = new Map(result.failed.map((failure) => [failure.fieldId, failure.reason]));
       const skippedFields = new Set(result.skippedFieldIds);
@@ -443,6 +678,22 @@ export default function App() {
     if (!settings) return;
     await saveSettings(settings);
     setNotice({ tone: 'success', text: '自动填充和 API 设置已保存。' });
+  }
+
+  async function undoMemoryChange() {
+    const restored = await undoLastMappingChange();
+    setMemoryStats(await getMappingMemoryStats());
+    setNotice({
+      tone: restored ? 'success' : 'info',
+      text: restored ? '已撤销最近一次字段记忆更新。' : '当前没有可撤销的字段记忆。',
+    });
+  }
+
+  async function clearMemory() {
+    if (!window.confirm('清空全部本地字段映射记忆？已保存的简历资料不会受影响。')) return;
+    await clearMappingMemory();
+    setMemoryStats(await getMappingMemoryStats());
+    setNotice({ tone: 'success', text: '本地字段映射记忆已清空。' });
   }
 
   if (!profile || !settings) {
@@ -496,7 +747,7 @@ export default function App() {
                 <header className="section-heading">
                   <div>
                     <h2>匹配预览</h2>
-                    <span>{matches.length} 已匹配 · {unresolvedCount} 待确认</span>
+                    <span>{matches.length} 已匹配 · {unresolvedFields.length} 待确认</span>
                   </div>
                   {matches.length > 0 && (
                     <button
@@ -510,7 +761,13 @@ export default function App() {
                   )}
                 </header>
                 <div className="match-list">
-                  {matches.length === 0 && <p className="empty-state">没有匹配到可填写的空字段。请先补充简历资料或检查网页权限。</p>}
+                  {matches.length === 0 && (
+                    <p className="empty-state">
+                      {unresolvedFields.length > 0
+                        ? '没有自动匹配项，请在下方逐项选择已有简历资料。'
+                        : '当前页面没有尚未填写的字段。'}
+                    </p>
+                  )}
                   {matches.map((match) => {
                     const applyStatus = matchApplyStatus[match.fieldId];
                     return (
@@ -523,7 +780,13 @@ export default function App() {
                             <span>来源：{match.profileLabel}</span>
                           </div>
                           <div className="confidence-capsule">
-                            {match.source === 'ai' ? 'AI' : '规则'} {match.confidence}
+                            {match.reason === '用户手动选择简历资料'
+                              ? '手动'
+                              : match.source === 'memory'
+                                ? '记忆'
+                                : match.source === 'ai'
+                                  ? 'AI'
+                                  : '规则'} {match.confidence}
                           </div>
                         </div>
                         <label className="match-value-field">
@@ -561,6 +824,122 @@ export default function App() {
                     );
                   })}
                 </div>
+
+                {unresolvedFields.length > 0 && (
+                  <section className="unresolved-workbench" aria-labelledby="unresolved-heading">
+                    <header>
+                      <div>
+                        <span className="eyebrow">下一步</span>
+                        <h3 id="unresolved-heading">逐项确认剩余字段</h3>
+                      </div>
+                      <strong>{unresolvedFields.length} 项</strong>
+                    </header>
+                    <p className="unresolved-guide">
+                      扫描已列出网页中的全部空字段。自动匹配不到时，可从本地简历资料中选择、编辑后应用；复杂控件可复制后手动粘贴。
+                    </p>
+                    <div className="unresolved-list">
+                      {unresolvedFields.map((field, index) => {
+                        const draft = manualFieldDrafts[field.id] ?? { profileKey: '', value: '' };
+                        const applyStatus = matchApplyStatus[field.id];
+                        const fieldName = field.label || field.placeholder || field.name || `未命名字段 ${index + 1}`;
+                        const canRememberManual =
+                          settings?.rememberConfirmedMappings &&
+                          field.fillCapability === 'manual' &&
+                          !['file', 'password'].includes(field.type);
+                        return (
+                          <article className="unresolved-row" key={field.id}>
+                            <div className="unresolved-heading">
+                              <div>
+                                <span className="unresolved-index">{String(index + 1).padStart(2, '0')}</span>
+                                <strong>{fieldName}</strong>
+                                {field.required && <span className="required-badge">必填</span>}
+                                {field.fillCapability === 'manual' && <span className="manual-badge">需手动</span>}
+                              </div>
+                              <span>{field.type || field.tag}</span>
+                            </div>
+                            {(field.section || field.manualReason) && (
+                              <p className="field-context">
+                                {[field.section && `所在区域：${field.section}`, field.manualReason].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                            <label className="candidate-select-field">
+                              <span>从已有简历资料选择</span>
+                              <select
+                                value={draft.profileKey}
+                                onChange={(event) => selectManualCandidate(field.id, event.target.value)}
+                              >
+                                <option value="">请选择资料（也可直接在下方输入）</option>
+                                {candidates.map((candidate) => (
+                                  <option key={candidate.key} value={candidate.key}>
+                                    {candidate.label} · {candidate.value.replace(/\s+/g, ' ').slice(0, 48)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="match-value-field">
+                              <span>本次填写内容</span>
+                              <textarea
+                                value={draft.value}
+                                rows={draft.value.length > 80 || draft.value.includes('\n') ? 4 : 2}
+                                placeholder="选择已有资料，或为本次网申直接输入内容"
+                                onChange={(event) => updateManualField(field.id, { value: event.target.value })}
+                                aria-describedby={`manual-help-${field.id}`}
+                              />
+                            </label>
+                            <div className="unresolved-actions">
+                              <small id={`manual-help-${field.id}`}>
+                                {field.fillCapability === 'manual'
+                                  ? canRememberManual
+                                    ? '复制并在网页完成填写后，可检查页面并记住对应关系。'
+                                    : '此敏感或文件控件不会自动填写，也不会保存映射。'
+                                  : '编辑只影响本次填写，不会改动已保存的简历。'}
+                              </small>
+                              <div>
+                                <button
+                                  className="copy-value-button"
+                                  type="button"
+                                  disabled={!draft.value.trim()}
+                                  onClick={() => void copyManualValue(field.id)}
+                                >
+                                  复制内容
+                                </button>
+                                <button
+                                  className="apply-one-button"
+                                  type="button"
+                                  disabled={
+                                    busy ||
+                                    !draft.value.trim() ||
+                                    (field.fillCapability === 'manual' && (!canRememberManual || !draft.profileKey))
+                                  }
+                                  onClick={() =>
+                                    void (field.fillCapability === 'manual'
+                                      ? confirmManualField(field)
+                                      : applyManualField(field))
+                                  }
+                                >
+                                  {field.fillCapability === 'manual'
+                                    ? canRememberManual
+                                      ? '检查并记住'
+                                      : '请手动完成'
+                                    : '应用此项'}
+                                </button>
+                              </div>
+                            </div>
+                            {applyStatus && (
+                              <p
+                                className={`match-status match-status--${applyStatus.tone}`}
+                                role="status"
+                                aria-live="polite"
+                              >
+                                {applyStatus.text}
+                              </p>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
               </section>
             )}
 
@@ -642,7 +1021,27 @@ export default function App() {
               <span className="eyebrow">自动化</span>
               <Toggle label="进入疑似网申页面后自动填写（默认关闭；启用后网页可读取已写入表单的资料）" checked={settings.autoFillJobPages} onChange={(autoFillJobPages) => setSettings({ ...settings, autoFillJobPages })} dangerous />
               <Toggle label="允许 AI 处理规则无法判断的字段" checked={settings.useAiForAmbiguousFields} onChange={(useAiForAmbiguousFields) => setSettings({ ...settings, useAiForAmbiguousFields })} />
+              <Toggle label="记住我确认并成功填写的字段映射（仅保存在本机）" checked={settings.rememberConfirmedMappings} onChange={(rememberConfirmedMappings) => setSettings({ ...settings, rememberConfirmedMappings })} />
               <Toggle label="允许覆盖网页中已有内容" checked={settings.overwriteExisting} onChange={(overwriteExisting) => setSettings({ ...settings, overwriteExisting })} dangerous />
+            </section>
+
+            <section className="settings-card memory-settings">
+              <span className="eyebrow">本地映射记忆</span>
+              <h2>越确认，后续匹配越稳定</h2>
+              <p>只记录网站域名、字段特征摘要和资料字段键，不保存网页路径、字段原文或填写内容。仅成功应用的确认会被学习。</p>
+              <div className="memory-stats" aria-live="polite">
+                <span><strong>{memoryStats?.mappings ?? 0}</strong> 条映射</span>
+                <span><strong>{memoryStats?.sites ?? 0}</strong> 个网站</span>
+                <span><strong>{memoryStats?.confirmations ?? 0}</strong> 次确认</span>
+              </div>
+              <div className="memory-actions">
+                <button className="copy-value-button" type="button" onClick={() => void undoMemoryChange()}>
+                  撤销最近一次
+                </button>
+                <button className="memory-clear-button" type="button" disabled={!memoryStats?.mappings} onClick={() => void clearMemory()}>
+                  清空记忆
+                </button>
+              </div>
             </section>
 
             <section className="settings-card">

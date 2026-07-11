@@ -80,9 +80,12 @@ export type AiSettings = {
 export type ExtensionSettings = {
   autoFillJobPages: boolean;
   useAiForAmbiguousFields: boolean;
+  rememberConfirmedMappings: boolean;
   overwriteExisting: boolean;
   ai: AiSettings;
 };
+
+export type FieldFillCapability = 'auto' | 'manual';
 
 export type FieldDescriptor = {
   id: string;
@@ -95,6 +98,9 @@ export type FieldDescriptor = {
   options: string[];
   currentValue: string;
   occurrence: number;
+  required: boolean;
+  fillCapability: FieldFillCapability;
+  manualReason: string;
 };
 
 export type ProfileCandidate = {
@@ -113,7 +119,7 @@ export type FieldMatch = {
   profileLabel: string;
   value: string;
   confidence: number;
-  source: 'rule' | 'ai';
+  source: 'rule' | 'ai' | 'memory';
   reason: string;
 };
 
