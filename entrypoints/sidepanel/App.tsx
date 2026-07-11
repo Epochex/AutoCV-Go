@@ -706,7 +706,7 @@ export default function App() {
         <div className="brand-mark" aria-hidden="true">AF</div>
         <div>
           <h1>AutoCV Go</h1>
-          <p>网申填充助手 · 本地优先</p>
+          <p>合格的快枪手就特么的需要快速装填！</p>
         </div>
         <span className="privacy-chip">不自动提交</span>
       </header>
