@@ -193,6 +193,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .primary-button:disabled { cursor: wait; opacity: 0.6; }
 .secondary-button { margin-top: 8px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); background: transparent; color: inherit; }
 
+.auto-mode-control {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 6%, transparent);
+}
+.auto-mode-control > div { display: grid; gap: 2px; }
+.auto-mode-control strong { font-size: var(--text-xs); }
+.auto-mode-control span { color: color-mix(in srgb, currentColor 65%, transparent); font-size: 11px; }
+.auto-mode-control button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.auto-mode-control.is-on { border-color: color-mix(in srgb, var(--accent) 62%, transparent); }
+.auto-mode-control.is-on button { background: var(--accent); color: #fff; }
+
 .last-run {
   display: grid;
   grid-template-columns: 1fr auto;

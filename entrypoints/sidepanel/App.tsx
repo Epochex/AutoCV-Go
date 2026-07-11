@@ -680,6 +680,19 @@ export default function App() {
     setNotice({ tone: 'success', text: '自动填充和 API 设置已保存。' });
   }
 
+  async function setAutoFillMode(autoFillJobPages: boolean) {
+    if (!settings) return;
+    const next = { ...settings, autoFillJobPages };
+    setSettings(next);
+    await saveSettings(next);
+    setNotice({
+      tone: 'success',
+      text: autoFillJobPages
+        ? '已开启后台自动填写。刷新招聘页面后会自动处理高置信度空字段。'
+        : '已关闭后台自动填写，仍可使用扫描按钮手动触发。',
+    });
+  }
+
   async function undoMemoryChange() {
     const restored = await undoLastMappingChange();
     setMemoryStats(await getMappingMemoryStats());
@@ -732,6 +745,19 @@ export default function App() {
               <button className="secondary-button" type="button" disabled={busy} onClick={() => void scanPage(false)}>
                 仅扫描，先看匹配结果
               </button>
+              <div className={`auto-mode-control ${settings.autoFillJobPages ? 'is-on' : ''}`}>
+                <div>
+                  <strong>后台自动填写</strong>
+                  <span>{settings.autoFillJobPages ? '已开启，刷新页面自动装填' : '当前关闭，只会手动扫描'}</span>
+                </div>
+                <button
+                  type="button"
+                  aria-pressed={settings.autoFillJobPages}
+                  onClick={() => void setAutoFillMode(!settings.autoFillJobPages)}
+                >
+                  {settings.autoFillJobPages ? '关闭' : '立即开启'}
+                </button>
+              </div>
             </section>
 
             {lastRun?.at && (
