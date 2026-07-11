@@ -53,6 +53,14 @@ const REPEAT_FIELDS = {
     ['link', '项目链接', ['项目链接', '项目地址', 'project url', 'link']],
     ['description', '项目描述', ['项目描述', '项目内容', '项目介绍', 'project description']],
   ],
+  research: [
+    ['name', '论文 / 科研名称', ['论文题目', '论文名称', '科研名称', '研究名称', '课题名称', 'paper title', 'research title']],
+    ['role', '作者 / 研究角色', ['作者', '作者排序', '论文角色', '研究角色', '科研职责', 'author', 'research role']],
+    ['startDate', '科研开始时间', ['科研开始时间', '研究开始时间', '开始时间', 'start date']],
+    ['endDate', '科研结束时间', ['科研结束时间', '研究结束时间', '结束时间', 'end date']],
+    ['link', '论文 / 科研链接', ['论文链接', '科研链接', 'DOI', 'paper url', 'research url']],
+    ['description', '科研描述', ['科研描述', '研究内容', '论文摘要', '科研成果', 'research description']],
+  ],
 } as const;
 
 export function normalizeText(value: string): string {

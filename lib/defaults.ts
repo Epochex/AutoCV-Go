@@ -33,6 +33,8 @@ export const emptyProject = () => ({
   description: '',
 });
 
+export const emptyResearch = emptyProject;
+
 export const emptyCustomField = () => ({
   id: id(),
   label: '',
@@ -41,7 +43,7 @@ export const emptyCustomField = () => ({
 });
 
 export const DEFAULT_PROFILE: ResumeProfile = {
-  version: 1,
+  version: 2,
   basics: {
     fullName: '',
     gender: '',
@@ -61,6 +63,7 @@ export const DEFAULT_PROFILE: ResumeProfile = {
   work: [],
   internship: [emptyExperience()],
   projects: [emptyProject()],
+  research: [],
   skills: '',
   languages: '',
   awards: '',

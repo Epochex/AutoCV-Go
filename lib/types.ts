@@ -45,6 +45,8 @@ export type ProjectEntry = {
   description: string;
 };
 
+export type ResearchEntry = ProjectEntry;
+
 export type CustomField = {
   id: string;
   label: string;
@@ -53,12 +55,13 @@ export type CustomField = {
 };
 
 export type ResumeProfile = {
-  version: 1;
+  version: 2;
   basics: BasicProfile;
   education: EducationEntry[];
   work: ExperienceEntry[];
   internship: ExperienceEntry[];
   projects: ProjectEntry[];
+  research: ResearchEntry[];
   skills: string;
   languages: string;
   awards: string;

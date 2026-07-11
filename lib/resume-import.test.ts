@@ -150,7 +150,13 @@ describe('parseResumeText', () => {
       startDate: '2024-04',
       endDate: '2024-09',
     });
-    expect(projectsByName.has('面向 LLM 的证据准入研究')).toBe(true);
+    expect(projectsByName.has('面向 LLM 的证据准入研究')).toBe(false);
+    expect(parsed.research?.[0]).toMatchObject({
+      name: '面向 LLM 的证据准入研究',
+      role: '论文一作 | 架构设计 + 系统实现',
+      startDate: '2026-04',
+      endDate: '2026-10',
+    });
   });
 
   it('merges only detected values and supports replace or append for repeated sections', () => {
@@ -252,13 +258,14 @@ describe('parseResumeText', () => {
       degree: '硕士',
       major: '网络与系统工程',
     });
-    expect(parsed.projects?.[0]).toMatchObject({
+    expect(parsed.research?.[0]).toMatchObject({
       name: '面向 LLM 的证据准入研究',
       role: '论文一作 | 架构设计 + 系统实现',
       startDate: '2026-04',
       endDate: '2026-10',
     });
-    expect(parsed.projects?.[0]?.description).toContain('联合实验室构建证据准入层');
-    expect(parsed.projects?.[0]?.description).not.toContain('@@BULLET');
+    expect(parsed.research?.[0]?.description).toContain('联合实验室构建证据准入层');
+    expect(parsed.research?.[0]?.description).not.toContain('@@BULLET');
+    expect(parsed.projects).toBeUndefined();
   });
 });

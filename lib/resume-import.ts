@@ -23,6 +23,7 @@ type SectionKind =
   | 'work'
   | 'internship'
   | 'projects'
+  | 'research'
   | 'skills'
   | 'languages'
   | 'awards'
@@ -211,7 +212,8 @@ const sectionKind = (title: string): SectionKind => {
   if (/(教育|学历|education|academic)/i.test(compact)) return 'education';
   if (/(实习|internship)/i.test(compact)) return 'internship';
   if (/(工作|任职|职业经历|employment|workexperience|experience)/i.test(compact)) return 'work';
-  if (/(项目|科研|研究|论文|开源|project|research|publication)/i.test(compact)) return 'projects';
+  if (/(科研|研究|论文|research|publication)/i.test(compact)) return 'research';
+  if (/(项目|开源|project|opensource)/i.test(compact)) return 'projects';
   if (/(技能|技术栈|专业能力|skill|technology)/i.test(compact)) return 'skills';
   if (/(语言|外语|language)/i.test(compact)) return 'languages';
   if (/(奖项|荣誉|证书|award|honou?r|certificate)/i.test(compact)) return 'awards';
@@ -502,7 +504,7 @@ const parseProjects = (sections: Section[]): ProjectEntry[] => {
           description,
         });
       }
-    } else {
+    } else if (section.kind === 'projects') {
       for (const line of section.lines) {
         const marker = line.match(/^@@PROJECT\t([^\t]*)\t(.*)$/);
         if (marker?.[1]) {
@@ -535,6 +537,55 @@ const parseProjects = (sections: Section[]): ProjectEntry[] => {
   return projects;
 };
 
+const parseResearch = (sections: Section[]): ProjectEntry[] => {
+  const research: ProjectEntry[] = [];
+  const seen = new Set<string>();
+  const add = (entry: Omit<ProjectEntry, 'id'>) => {
+    const key = `${entry.name}\u0000${entry.startDate}\u0000${entry.description}`;
+    if (!entry.name || seen.has(key)) return;
+    seen.add(key);
+    research.push({ ...entry, id: stableId('research', key, research.length) });
+  };
+
+  for (const section of sections.filter((item) => item.kind === 'research')) {
+    for (const line of section.lines) {
+      const marker = line.match(/^@@PROJECT\t([^\t]*)\t(.*)$/);
+      if (marker?.[1]) {
+        const description = marker[2] ?? '';
+        add({
+          name: marker[1],
+          role: '',
+          startDate: '',
+          endDate: '',
+          link: description.match(/https?:\/\/\S+/)?.[0] ?? '',
+          description,
+        });
+      }
+    }
+    for (const entry of entryBlocks(section.lines)) {
+      const date = findDateRange(`${entry.dates} ${entry.title} ${entry.subtitle}`);
+      const parts = splitColumns(`${entry.title} | ${entry.subtitle}`)
+        .map((part) => (date ? part.replace(date.raw, '').trim() : part))
+        .filter(Boolean);
+      const description = entry.details
+        .map((line) => line.replace(/^@@BULLET\t/, ''))
+        .map(cleanBullet)
+        .filter((line) => line && !/^@@PROJECT\t/.test(line))
+        .join('\n');
+      const link = `${entry.title} ${entry.subtitle} ${description}`.match(/https?:\/\/\S+/)?.[0] ?? '';
+      add({
+        name: parts[0] ?? '',
+        role: parts.slice(1).join(' | '),
+        startDate: date?.startDate ?? '',
+        endDate: date?.endDate ?? '',
+        link,
+        description,
+      });
+    }
+  }
+  return research;
+};
+
 const sectionText = (sections: Section[], kind: SectionKind) =>
   sections
     .filter((section) => section.kind === kind)
@@ -550,6 +601,7 @@ export const parseResumeText = (source: string, format: ResumeImportFormat = 'te
   const work = parseExperience(sections, 'work');
   const internship = parseExperience(sections, 'internship');
   const projects = parseProjects(sections);
+  const research = parseResearch(sections);
   const skills =
     sectionText(sections, 'skills') ||
     sections
@@ -564,6 +616,7 @@ export const parseResumeText = (source: string, format: ResumeImportFormat = 'te
   if (work.length) result.work = work;
   if (internship.length) result.internship = internship;
   if (projects.length) result.projects = projects;
+  if (research.length) result.research = research;
   if (skills) result.skills = skills;
   if (languages) result.languages = languages;
   if (awards) result.awards = awards;
@@ -641,6 +694,7 @@ export const mergeParsedProfile = (
     work: mergeArray(current.work, parsed.work, ['organization', 'startDate', 'endDate']),
     internship: mergeArray(current.internship, parsed.internship, ['organization', 'startDate', 'endDate']),
     projects: mergeArray(current.projects, parsed.projects, ['name', 'startDate', 'endDate']),
+    research: mergeArray(current.research, parsed.research, ['name', 'startDate', 'endDate']),
     customFields: mergeArray(current.customFields, parsed.customFields, ['label'], 'append'),
     skills: meaningful(parsed.skills) ? parsed.skills : current.skills,
     languages: meaningful(parsed.languages) ? parsed.languages : current.languages,

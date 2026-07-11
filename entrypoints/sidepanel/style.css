@@ -367,7 +367,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   color: var(--accent);
   font: 700 var(--text-xs)/1.4 var(--font-mono);
 }
-.import-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.import-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 6px; }
 .import-summary-grid span { display: grid; place-items: center; padding: 7px 3px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 10px; text-align: center; }
 .import-summary-grid strong { color: var(--ink); font: 800 var(--text-lg)/1 var(--font-mono); }
 .import-preview-list { display: grid; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
-import { DEFAULT_PROFILE, DEFAULT_SETTINGS } from './defaults';
+import { DEFAULT_SETTINGS } from './defaults';
+import { normalizeStoredProfile } from './profile';
 import type { ExtensionSettings, ResumeProfile } from './types';
 
 const PROFILE_KEY = 'autocv.profile.v1';
@@ -7,7 +8,7 @@ const SETTINGS_KEY = 'autocv.settings.v1';
 
 export async function loadProfile(): Promise<ResumeProfile> {
   const stored = await browser.storage.local.get(PROFILE_KEY);
-  return (stored[PROFILE_KEY] as ResumeProfile | undefined) ?? structuredClone(DEFAULT_PROFILE);
+  return normalizeStoredProfile(stored[PROFILE_KEY]);
 }
 
 export async function saveProfile(profile: ResumeProfile): Promise<void> {

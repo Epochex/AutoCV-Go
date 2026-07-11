@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PROFILE, emptyProject } from './defaults';
+import { DEFAULT_PROFILE, emptyProject, emptyResearch } from './defaults';
 import { matchFields } from './matcher';
 import type { FieldDescriptor, ResumeProfile } from './types';
 
@@ -57,5 +57,19 @@ describe('matchFields', () => {
     profile.basics.fullName = '张三';
     profile.projects = [];
     expect(matchFields([field({ label: '项目名称', name: 'projectName1' })], profile)).toEqual([]);
+  });
+
+  it('matches research fields separately from project fields', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.projects = [{ ...emptyProject(), name: '工程项目' }];
+    profile.research = [{ ...emptyResearch(), name: '证据准入论文', role: '论文一作' }];
+
+    const matches = matchFields(
+      [field({ label: '论文题目' }), field({ label: '作者排序' })],
+      profile,
+    );
+
+    expect(matches.map((match) => match.value)).toEqual(['证据准入论文', '论文一作']);
+    expect(matches.every((match) => match.profileKey.startsWith('research.'))).toBe(true);
   });
 });

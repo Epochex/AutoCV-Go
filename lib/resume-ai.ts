@@ -1,4 +1,5 @@
 import { DEFAULT_PROFILE } from './defaults';
+import { isResearchLikeProject } from './profile';
 import type { AiSettings, ResumeProfile } from './types';
 import type { ResumeFileFormat } from './file-text';
 
@@ -59,7 +60,7 @@ export function normalizeImportedProfile(input: unknown): ResumeProfile {
 
   profile.work = normalizeExperience(source.work);
   profile.internship = normalizeExperience(source.internship);
-  profile.projects = recordArray(source.projects).map((item) => ({
+  const normalizeProjectEntries = (value: unknown) => recordArray(value).map((item) => ({
     id: newId(),
     name: stringValue(item.name),
     role: stringValue(item.role),
@@ -68,6 +69,19 @@ export function normalizeImportedProfile(input: unknown): ResumeProfile {
     link: stringValue(item.link),
     description: stringValue(item.description),
   }));
+  const importedProjects = normalizeProjectEntries(source.projects);
+  profile.projects = importedProjects.filter((entry) => !isResearchLikeProject(entry));
+  profile.research = [
+    ...normalizeProjectEntries(source.research),
+    ...importedProjects.filter(isResearchLikeProject),
+  ].filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          `${candidate.name}\u0000${candidate.startDate}\u0000${candidate.endDate}` ===
+          `${entry.name}\u0000${entry.startDate}\u0000${entry.endDate}`,
+      ) === index,
+  );
   profile.skills = stringValue(source.skills);
   profile.languages = stringValue(source.languages);
   profile.awards = stringValue(source.awards);
@@ -101,7 +115,7 @@ export async function parseResumeWithAi(
         {
           role: 'system',
           content:
-            '你是中文技术简历结构化解析器。只提取原文明确出现的信息，禁止编造或润色。日期保留 YYYY-MM 或原文形式。区分工作经历、实习经历和项目经历。返回且只返回符合指定结构的 JSON。',
+            '你是中文技术简历结构化解析器。只提取原文明确出现的信息，禁止编造或润色。日期保留 YYYY-MM 或原文形式。必须区分工作经历、实习经历、工程项目和科研/论文：科研经历、论文、期刊或会议投稿一律放入 research，绝不能放入 projects；projects 只放工程项目、课程项目、个人项目和开源贡献。返回且只返回符合指定结构的 JSON。',
         },
         {
           role: 'user',
