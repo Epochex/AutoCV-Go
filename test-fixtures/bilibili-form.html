@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>哔哩哔哩校园招聘表单适配测试</title>
+    <style>
+      body { max-width: 760px; margin: 32px auto; font-family: sans-serif; }
+      .resume-form-item { display: grid; grid-template-columns: 150px 1fr; gap: 12px; margin: 16px 0; }
+      .resume-form-label { padding-top: 9px; }
+      input, textarea, .bili-select { box-sizing: border-box; width: 100%; padding: 9px; }
+      .bili-select { border: 1px solid #aaa; }
+      .bili-select input { padding: 0; border: 0; outline: 0; }
+      .bili-select-dropdown { display: none; position: fixed; z-index: 5; padding: 6px; background: white; border: 1px solid #aaa; }
+      .bili-select-dropdown.open { display: block; }
+      [role="option"] { padding: 7px 16px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>编辑简历</h1>
+    <section class="basic-information">
+      <h2>基本信息</h2>
+      <div class="resume-form-item">
+        <div class="resume-form-label">姓名 *</div>
+        <div><input name="candidateName" /></div>
+      </div>
+      <div class="resume-form-item">
+        <div class="resume-form-label">性别 *</div>
+        <div class="bili-select" role="combobox" aria-expanded="false">
+          <input name="gender" readonly placeholder="请选择" />
+        </div>
+      </div>
+      <div class="resume-form-item">
+        <div class="resume-form-label">出生日期 *</div>
+        <div class="bili-date-picker">
+          <input name="birthDate" readonly placeholder="请选择" />
+        </div>
+      </div>
+      <div class="resume-form-item">
+        <div class="resume-form-label">个人优势</div>
+        <div><textarea name="advantage" placeholder="建议输入个人优势描述，1000字以内"></textarea></div>
+      </div>
+    </section>
+    <div class="bili-select-dropdown" role="listbox">
+      <div role="option" data-value="男">男</div>
+      <div role="option" data-value="女">女</div>
+    </div>
+    <button type="button">投递（测试页面不会提交）</button>
+    <script>
+      const select = document.querySelector('.bili-select');
+      const input = select.querySelector('input');
+      const dropdown = document.querySelector('.bili-select-dropdown');
+      select.addEventListener('click', () => {
+        dropdown.classList.add('open');
+        select.setAttribute('aria-expanded', 'true');
+      });
+      dropdown.addEventListener('click', (event) => {
+        const option = event.target.closest('[role="option"]');
+        if (!option) return;
+        input.value = option.dataset.value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        dropdown.classList.remove('open');
+        select.setAttribute('aria-expanded', 'false');
+      });
+    </script>
+  </body>
+</html>

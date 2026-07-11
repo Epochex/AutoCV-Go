@@ -114,4 +114,30 @@ describe('matchFields', () => {
       value: '硕士院校',
     });
   });
+
+  it('matches recruitment-site personal advantage wording to the self introduction', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.basics.selfIntroduction = '具备扎实的工程实践和快速学习能力。';
+
+    const matches = matchFields(
+      [field({ label: '个人优势', placeholder: '建议输入个人优势描述，1000字以内' })],
+      profile,
+    );
+
+    expect(matches).toEqual([
+      expect.objectContaining({
+        profileKey: 'basics.selfIntroduction',
+        value: '具备扎实的工程实践和快速学习能力。',
+      }),
+    ]);
+  });
+
+  it('derives a phone country code for recruitment forms', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.basics.phone = '13800138000';
+
+    expect(matchFields([field({ label: '区号' })], profile)).toEqual([
+      expect.objectContaining({ profileKey: 'derived.phoneCountryCode', value: '+86' }),
+    ]);
+  });
 });

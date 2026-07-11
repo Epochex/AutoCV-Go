@@ -10,20 +10,20 @@ const BASIC_FIELDS: Array<{
   { key: 'birthDate', label: '出生日期', aliases: ['出生日期', '出生年月', '生日', 'birth date', 'birthday'] },
   { key: 'phone', label: '手机号', aliases: ['手机号', '手机号码', '联系电话', '电话', 'mobile', 'phone'] },
   { key: 'email', label: '邮箱', aliases: ['邮箱', '电子邮箱', '邮件', 'email', 'e-mail'] },
-  { key: 'city', label: '所在城市', aliases: ['所在城市', '现居城市', '居住地', '所在地', 'current city'] },
+  { key: 'city', label: '所在城市', aliases: ['所在城市', '现居城市', '现居住地', '居住城市', '常住城市', '居住地', '所在地', 'current city'] },
   { key: 'address', label: '联系地址', aliases: ['联系地址', '详细地址', '通讯地址', '地址', 'address'] },
   { key: 'identityNumber', label: '身份证号', aliases: ['身份证号', '身份证号码', '证件号码', 'id number'] },
   { key: 'politicalStatus', label: '政治面貌', aliases: ['政治面貌'] },
   { key: 'expectedRole', label: '期望职位', aliases: ['期望职位', '期望岗位', '意向岗位', '申请职位', 'position'] },
   { key: 'expectedCity', label: '期望城市', aliases: ['期望城市', '期望工作地', '工作地点', '意向城市'] },
   { key: 'expectedSalary', label: '期望薪资', aliases: ['期望薪资', '期望月薪', '薪资要求', 'salary'] },
-  { key: 'selfIntroduction', label: '自我介绍', aliases: ['自我介绍', '自我评价', '个人总结', '个人简介', 'summary'] },
+  { key: 'selfIntroduction', label: '自我介绍', aliases: ['自我介绍', '自我评价', '个人总结', '个人简介', '个人优势', '优势描述', '个人优势描述', 'summary'] },
 ];
 
 const REPEAT_FIELDS = {
   education: [
     ['school', '学校', ['学校', '院校', '毕业院校', '学校名称', 'university', 'school']],
-    ['degree', '学历', ['学历', '学位', 'degree']],
+    ['degree', '学历', ['学历', '最高学历', '学位', 'degree']],
     ['major', '专业', ['专业', '专业名称', 'major']],
     ['startDate', '教育开始时间', ['入学时间', '开始时间', '起始时间', 'start date']],
     ['endDate', '教育结束时间', ['毕业时间', '结束时间', '截止时间', 'end date']],
@@ -86,6 +86,22 @@ export function profileCandidates(profile: ResumeProfile): ProfileCandidate[] {
     value: profile.basics[field.key],
     category: 'basics',
   }));
+
+  const internationalPrefix = /^\+(\d{1,3})/.exec(profile.basics.phone)?.[1];
+  const inferredPhoneCountryCode = internationalPrefix
+    ? `+${internationalPrefix}`
+    : /^1\d{10}$/.test(profile.basics.phone.replace(/\s/g, ''))
+      ? '+86'
+      : '';
+  if (inferredPhoneCountryCode) {
+    candidates.push({
+      key: 'derived.phoneCountryCode',
+      label: '手机区号',
+      aliases: ['区号', '国家区号', '手机区号', 'country code'],
+      value: inferredPhoneCountryCode,
+      category: 'basics',
+    });
+  }
 
   (Object.keys(REPEAT_FIELDS) as Array<keyof typeof REPEAT_FIELDS>).forEach((category) => {
     profile[category].forEach((entry, repeatIndex) => {
