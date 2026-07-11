@@ -34,6 +34,7 @@ export const emptyProject = () => ({
 });
 
 export const emptyResearch = emptyProject;
+export const emptyOpenSource = emptyProject;
 
 export const emptyCustomField = () => ({
   id: id(),
@@ -43,7 +44,7 @@ export const emptyCustomField = () => ({
 });
 
 export const DEFAULT_PROFILE: ResumeProfile = {
-  version: 2,
+  version: 3,
   basics: {
     fullName: '',
     gender: '',
@@ -64,6 +65,7 @@ export const DEFAULT_PROFILE: ResumeProfile = {
   internship: [emptyExperience()],
   projects: [emptyProject()],
   research: [],
+  openSource: [],
   skills: '',
   languages: '',
   awards: '',

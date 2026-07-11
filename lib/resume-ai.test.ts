@@ -8,6 +8,7 @@ describe('normalizeImportedProfile', () => {
       education: [{ school: '清华大学', degree: '硕士' }],
       projects: [{ name: 'Agent 平台', description: '多智能体编排' }],
       research: [{ name: '网络事件分析', role: '论文一作', description: '会议投稿中' }],
+      openSource: [{ name: '示例 SDK', role: 'Contributor', description: '合入错误修复' }],
       skills: 'TypeScript, Python',
     });
     expect(result.basics.fullName).toBe('刘鑫');
@@ -15,6 +16,7 @@ describe('normalizeImportedProfile', () => {
     expect(result.education[0]?.id).toBeTruthy();
     expect(result.projects[0]?.name).toBe('Agent 平台');
     expect(result.research[0]).toMatchObject({ name: '网络事件分析', role: '论文一作' });
+    expect(result.openSource[0]).toMatchObject({ name: '示例 SDK', role: 'Contributor' });
     expect(result.skills).toBe('TypeScript, Python');
     expect(result.work).toEqual([]);
   });
@@ -25,6 +27,7 @@ describe('normalizeImportedProfile', () => {
         { name: '工程自动化平台', role: '核心开发' },
         { name: 'AiCS：网络事件分析', role: '论文一作 | CoNEXT 投稿中' },
         { name: 'DRST：性能分析框架', role: '论文二作 | SCI Q1' },
+        { name: '示例插件仓库代码贡献者', role: 'Contributor', description: '合入 PR #42' },
       ],
     });
 
@@ -33,5 +36,6 @@ describe('normalizeImportedProfile', () => {
       'AiCS：网络事件分析',
       'DRST：性能分析框架',
     ]);
+    expect(result.openSource.map((entry) => entry.name)).toEqual(['示例插件仓库代码贡献者']);
   });
 });

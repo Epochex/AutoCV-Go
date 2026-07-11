@@ -184,6 +184,8 @@ export default function ResumeImporter({ profile, settings, onApply }: Props) {
             <span><strong>{(draft.work?.length ?? 0) + (draft.internship?.length ?? 0)}</strong> 工作/实习</span>
             <span><strong>{draft.projects?.length ?? 0}</strong> 项目</span>
             <span><strong>{draft.research?.length ?? 0}</strong> 科研/论文</span>
+            <span><strong>{draft.openSource?.length ?? 0}</strong> 开源</span>
+            <span><strong>{draft.customFields?.length ?? 0}</strong> 其他栏目</span>
           </div>
 
           <div className="import-preview-list">
@@ -205,11 +207,17 @@ export default function ResumeImporter({ profile, settings, onApply }: Props) {
             {draft.research?.map((item) => (
               <div key={item.id}><span>科研</span><strong>{item.name}</strong></div>
             ))}
+            {draft.openSource?.map((item) => (
+              <div key={item.id}><span>开源</span><strong>{item.name}</strong></div>
+            ))}
+            {draft.customFields?.map((item) => (
+              <div key={item.id}><span>其他</span><strong>{item.label}</strong></div>
+            ))}
           </div>
 
           <fieldset className="import-mode">
             <legend>经历列表如何处理</legend>
-            <label><input type="radio" name="import-mode" checked={mode === 'replace'} onChange={() => setMode('replace')} /> 用解析结果替换现有教育/经历/项目/科研</label>
+            <label><input type="radio" name="import-mode" checked={mode === 'replace'} onChange={() => setMode('replace')} /> 用解析结果替换现有教育/经历/项目/科研/开源</label>
             <label><input type="radio" name="import-mode" checked={mode === 'append'} onChange={() => setMode('append')} /> 追加到现有经历之后</label>
           </fieldset>
 

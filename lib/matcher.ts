@@ -61,6 +61,14 @@ const REPEAT_FIELDS = {
     ['link', '论文 / 科研链接', ['论文链接', '科研链接', 'DOI', 'paper url', 'research url']],
     ['description', '科研描述', ['科研描述', '研究内容', '论文摘要', '科研成果', 'research description']],
   ],
+  openSource: [
+    ['name', '开源项目 / 仓库', ['开源项目', '开源仓库', '仓库名称', '项目名称', 'repository', 'open source project']],
+    ['role', '开源角色', ['开源角色', '贡献角色', '贡献者类型', 'maintainer', 'contributor']],
+    ['startDate', '开源贡献开始时间', ['贡献开始时间', '开始时间', 'start date']],
+    ['endDate', '开源贡献结束时间', ['贡献结束时间', '结束时间', 'end date']],
+    ['link', '仓库 / PR 链接', ['仓库链接', 'PR 链接', 'GitHub 链接', 'repository url', 'pull request']],
+    ['description', '开源贡献描述', ['开源贡献', '贡献内容', '合入内容', '开源经历', 'contribution description']],
+  ],
 } as const;
 
 export function normalizeText(value: string): string {

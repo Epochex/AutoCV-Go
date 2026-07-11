@@ -38,6 +38,9 @@ describe('parseResumeText', () => {
 
 ## 荣誉奖项
 - 国家奖学金
+
+## 社会实践
+- 参与社区技术志愿服务
 `;
 
     const parsed = parseResumeText(markdown, 'md');
@@ -75,6 +78,10 @@ describe('parseResumeText', () => {
     expect(parsed.skills).toContain('TypeScript');
     expect(parsed.languages).toContain('CET-6');
     expect(parsed.awards).toContain('国家奖学金');
+    expect(parsed.customFields?.[0]).toMatchObject({
+      label: '社会实践',
+      value: '参与社区技术志愿服务',
+    });
   });
 
   it('understands nested projects in a custom LaTeX resume template', () => {
@@ -267,5 +274,24 @@ describe('parseResumeText', () => {
     expect(parsed.research?.[0]?.description).toContain('联合实验室构建证据准入层');
     expect(parsed.research?.[0]?.description).not.toContain('@@BULLET');
     expect(parsed.projects).toBeUndefined();
+  });
+
+  it('routes open-source contribution headings into their own collection', () => {
+    const parsed = parseResumeText(`
+开源贡献
+• 示例插件仓库代码贡献者：合入 PR #42，修复参数兼容问题。
+• 示例 SDK Maintainer：维护发布流水线与回归测试。
+`, 'pdf');
+
+    expect(parsed.projects).toBeUndefined();
+    expect(parsed.research).toBeUndefined();
+    expect(parsed.openSource?.map((entry) => entry.name)).toEqual([
+      '示例插件仓库代码贡献者',
+      '示例 SDK Maintainer',
+    ]);
+    expect(parsed.openSource?.[0]).toMatchObject({
+      role: '代码贡献者',
+      description: '合入 PR #42，修复参数兼容问题。',
+    });
   });
 });

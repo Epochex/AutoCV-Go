@@ -1,5 +1,5 @@
 import { DEFAULT_PROFILE } from './defaults';
-import { isResearchLikeProject } from './profile';
+import { isOpenSourceLikeProject, isResearchLikeProject } from './profile';
 import type { AiSettings, ResumeProfile } from './types';
 import type { ResumeFileFormat } from './file-text';
 
@@ -70,10 +70,22 @@ export function normalizeImportedProfile(input: unknown): ResumeProfile {
     description: stringValue(item.description),
   }));
   const importedProjects = normalizeProjectEntries(source.projects);
-  profile.projects = importedProjects.filter((entry) => !isResearchLikeProject(entry));
+  const projectsWithoutResearch = importedProjects.filter((entry) => !isResearchLikeProject(entry));
+  profile.projects = projectsWithoutResearch.filter((entry) => !isOpenSourceLikeProject(entry));
   profile.research = [
     ...normalizeProjectEntries(source.research),
     ...importedProjects.filter(isResearchLikeProject),
+  ].filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          `${candidate.name}\u0000${candidate.startDate}\u0000${candidate.endDate}` ===
+          `${entry.name}\u0000${entry.startDate}\u0000${entry.endDate}`,
+      ) === index,
+  );
+  profile.openSource = [
+    ...normalizeProjectEntries(source.openSource),
+    ...projectsWithoutResearch.filter(isOpenSourceLikeProject),
   ].filter(
     (entry, index, all) =>
       all.findIndex(
@@ -115,7 +127,7 @@ export async function parseResumeWithAi(
         {
           role: 'system',
           content:
-            '你是中文技术简历结构化解析器。只提取原文明确出现的信息，禁止编造或润色。日期保留 YYYY-MM 或原文形式。必须区分工作经历、实习经历、工程项目和科研/论文：科研经历、论文、期刊或会议投稿一律放入 research，绝不能放入 projects；projects 只放工程项目、课程项目、个人项目和开源贡献。返回且只返回符合指定结构的 JSON。',
+            '你是中文技术简历结构化解析器。只提取原文明确出现的信息，禁止编造或润色。日期保留 YYYY-MM 或原文形式。必须按照原文标题分类：科研经历、论文、期刊或会议投稿一律放入 research；开源贡献、仓库贡献者、Maintainer 或 Contributor 一律放入 openSource；projects 只放工程项目、课程项目和个人项目，三者绝不能混放。无法归入固定类型的新栏目放入 customFields，label 使用原栏目标题，value 保留栏目正文。返回且只返回符合指定结构的 JSON。',
         },
         {
           role: 'user',

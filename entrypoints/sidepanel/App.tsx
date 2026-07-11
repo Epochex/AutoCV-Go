@@ -5,6 +5,7 @@ import {
   emptyCustomField,
   emptyEducation,
   emptyExperience,
+  emptyOpenSource,
   emptyProject,
   emptyResearch,
 } from '../../lib/defaults';
@@ -17,6 +18,7 @@ import type {
   ExtensionSettings,
   FieldMatch,
   FillResult,
+  OpenSourceEntry,
   ProjectEntry,
   ResearchEntry,
   ResumeProfile,
@@ -184,6 +186,25 @@ function ResearchEditor({ profile, setProfile }: { profile: ResumeProfile; setPr
           <Field label="结束时间" value={entry.endDate} onChange={(value) => update(entry.id, { endDate: value })} placeholder="YYYY-MM 或 至今" />
           <Field label="论文 / 项目链接" value={entry.link} onChange={(value) => update(entry.id, { link: value })} />
           <Field label="研究内容 / 成果" value={entry.description} onChange={(value) => update(entry.id, { description: value })} multiline />
+        </EntryCard>
+      ))}
+    </ProfileSection>
+  );
+}
+
+function OpenSourceEditor({ profile, setProfile }: { profile: ResumeProfile; setProfile: (value: ResumeProfile) => void }) {
+  const update = (id: string, patch: Partial<OpenSourceEntry>) =>
+    setProfile({ ...profile, openSource: updateEntry(profile.openSource, id, patch) });
+  return (
+    <ProfileSection title="开源贡献" count={profile.openSource.length} onAdd={() => setProfile({ ...profile, openSource: [...profile.openSource, emptyOpenSource()] })}>
+      {profile.openSource.map((entry, index) => (
+        <EntryCard key={entry.id} title="开源贡献" index={index} onRemove={() => setProfile({ ...profile, openSource: profile.openSource.filter((item) => item.id !== entry.id) })}>
+          <Field label="项目 / 仓库名称" value={entry.name} onChange={(value) => update(entry.id, { name: value })} />
+          <Field label="贡献角色" value={entry.role} onChange={(value) => update(entry.id, { role: value })} placeholder="例如：Contributor / Maintainer" />
+          <Field label="开始时间" value={entry.startDate} onChange={(value) => update(entry.id, { startDate: value })} placeholder="YYYY-MM" />
+          <Field label="结束时间" value={entry.endDate} onChange={(value) => update(entry.id, { endDate: value })} placeholder="YYYY-MM 或 至今" />
+          <Field label="仓库 / PR 链接" value={entry.link} onChange={(value) => update(entry.id, { link: value })} />
+          <Field label="贡献内容" value={entry.description} onChange={(value) => update(entry.id, { description: value })} multiline />
         </EntryCard>
       ))}
     </ProfileSection>
@@ -589,6 +610,7 @@ export default function App() {
             <ExperienceEditor title="实习经历" entries={profile.internship} onChange={(internship) => setProfile({ ...profile, internship })} />
             <ProjectEditor profile={profile} setProfile={setProfile} />
             <ResearchEditor profile={profile} setProfile={setProfile} />
+            <OpenSourceEditor profile={profile} setProfile={setProfile} />
 
             <ProfileSection title="能力与荣誉">
               <div className="field-grid">

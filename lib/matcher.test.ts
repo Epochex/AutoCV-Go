@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PROFILE, emptyProject, emptyResearch } from './defaults';
+import { DEFAULT_PROFILE, emptyOpenSource, emptyProject, emptyResearch } from './defaults';
 import { matchFields } from './matcher';
 import type { FieldDescriptor, ResumeProfile } from './types';
 
@@ -71,5 +71,18 @@ describe('matchFields', () => {
 
     expect(matches.map((match) => match.value)).toEqual(['证据准入论文', '论文一作']);
     expect(matches.every((match) => match.profileKey.startsWith('research.'))).toBe(true);
+  });
+
+  it('matches open-source contribution fields separately', () => {
+    const profile: ResumeProfile = structuredClone(DEFAULT_PROFILE);
+    profile.openSource = [{ ...emptyOpenSource(), name: '示例 SDK', role: 'Maintainer' }];
+
+    const matches = matchFields(
+      [field({ label: '开源仓库' }), field({ label: '贡献者类型' })],
+      profile,
+    );
+
+    expect(matches.map((match) => match.value)).toEqual(['示例 SDK', 'Maintainer']);
+    expect(matches.every((match) => match.profileKey.startsWith('openSource.'))).toBe(true);
   });
 });

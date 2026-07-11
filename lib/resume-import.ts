@@ -1,5 +1,6 @@
 import type {
   BasicProfile,
+  CustomField,
   EducationEntry,
   ExperienceEntry,
   ProjectEntry,
@@ -24,6 +25,7 @@ type SectionKind =
   | 'internship'
   | 'projects'
   | 'research'
+  | 'openSource'
   | 'skills'
   | 'languages'
   | 'awards'
@@ -213,7 +215,8 @@ const sectionKind = (title: string): SectionKind => {
   if (/(实习|internship)/i.test(compact)) return 'internship';
   if (/(工作|任职|职业经历|employment|workexperience|experience)/i.test(compact)) return 'work';
   if (/(科研|研究|论文|research|publication)/i.test(compact)) return 'research';
-  if (/(项目|开源|project|opensource)/i.test(compact)) return 'projects';
+  if (/(开源|opensource|open-source)/i.test(compact)) return 'openSource';
+  if (/(项目|project)/i.test(compact)) return 'projects';
   if (/(技能|技术栈|专业能力|skill|technology)/i.test(compact)) return 'skills';
   if (/(语言|外语|language)/i.test(compact)) return 'languages';
   if (/(奖项|荣誉|证书|award|honou?r|certificate)/i.test(compact)) return 'awards';
@@ -244,9 +247,10 @@ const splitSections = (source: string) => {
       !findDateRange(line) &&
       !/^[-*+•]/.test(line);
     const markdownTitle = markdownHeading?.[2];
+    const markdownLevel = markdownHeading?.[1]?.length ?? 0;
     const heading =
       latexHeading?.[1] ??
-      (markdownTitle && sectionKind(markdownTitle) !== 'other' ? markdownTitle : undefined) ??
+      (markdownTitle && (sectionKind(markdownTitle) !== 'other' || markdownLevel >= 2) ? markdownTitle : undefined) ??
       (isPlainHeading ? cleanBullet(line) : undefined);
     if (heading) {
       current = { kind: sectionKind(heading), title: heading.trim(), lines: [] };
@@ -586,12 +590,81 @@ const parseResearch = (sections: Section[]): ProjectEntry[] => {
   return research;
 };
 
+const parseOpenSource = (sections: Section[]): ProjectEntry[] => {
+  const contributions: ProjectEntry[] = [];
+  const seen = new Set<string>();
+  const add = (entry: Omit<ProjectEntry, 'id'>) => {
+    const key = `${entry.name}\u0000${entry.description}`;
+    if (!entry.name || seen.has(key)) return;
+    seen.add(key);
+    contributions.push({ ...entry, id: stableId('open-source', key, contributions.length) });
+  };
+
+  for (const section of sections.filter((item) => item.kind === 'openSource')) {
+    for (let index = 0; index < section.lines.length; index += 1) {
+      const rawLine = section.lines[index]!;
+      const marker = rawLine.match(/^@@PROJECT\t([^\t]*)\t(.*)$/);
+      if (marker?.[1]) {
+        const description = marker[2] ?? '';
+        add({
+          name: marker[1],
+          role: '开源贡献者',
+          startDate: '',
+          endDate: '',
+          link: description.match(/https?:\/\/\S+/)?.[0] ?? '',
+          description,
+        });
+        continue;
+      }
+
+      const bullet = rawLine.match(/^\s*(?:@@BULLET\t|[-*+•]\s*)([^：:]{2,160})(?:[：:]\s*(.*))?$/);
+      if (!bullet?.[1]) continue;
+      const continuation: string[] = [];
+      for (let cursor = index + 1; cursor < section.lines.length; cursor += 1) {
+        const next = section.lines[cursor]!;
+        if (/^\s*(?:@@BULLET\t|[-*+•]\s*)/.test(next) || /^@@(?:ENTRY|PROJECT|SECTION)\t/.test(next)) break;
+        continuation.push(cleanBullet(next));
+      }
+      const name = cleanBullet(bullet[1]);
+      const description = [bullet[2] ?? '', ...continuation].map(cleanBullet).filter(Boolean).join('\n');
+      const date = findDateRange(`${name} ${description}`);
+      const role = name.match(/(代码贡献者|开源贡献者|仓库贡献者|维护者|maintainer|contributor)/i)?.[0] ?? '开源贡献者';
+      add({
+        name: date ? name.replace(date.raw, '').trim() : name,
+        role,
+        startDate: date?.startDate ?? '',
+        endDate: date?.endDate ?? '',
+        link: `${name} ${description}`.match(/https?:\/\/\S+/)?.[0] ?? '',
+        description,
+      });
+    }
+  }
+  return contributions;
+};
+
 const sectionText = (sections: Section[], kind: SectionKind) =>
   sections
     .filter((section) => section.kind === kind)
     .flatMap((section) => section.lines.map(cleanBullet))
     .filter((line) => line && !/^@@/.test(line))
     .join('\n');
+
+const parseCustomSections = (sections: Section[]): CustomField[] =>
+  sections
+    .filter((section) => section.kind === 'other' && section.title.trim())
+    .map((section, index) => {
+      const value = section.lines
+        .map(cleanBullet)
+        .filter((line) => line && !/^@@/.test(line))
+        .join('\n');
+      return {
+        id: stableId('custom-section', `${section.title}\u0000${value}`, index),
+        label: section.title.trim(),
+        value,
+        aliases: '',
+      };
+    })
+    .filter((field) => field.value.trim());
 
 export const parseResumeText = (source: string, format: ResumeImportFormat = 'text'): ParsedResumeProfile => {
   const normalized = normalizeResumeText(source, format);
@@ -602,6 +675,8 @@ export const parseResumeText = (source: string, format: ResumeImportFormat = 'te
   const internship = parseExperience(sections, 'internship');
   const projects = parseProjects(sections);
   const research = parseResearch(sections);
+  const openSource = parseOpenSource(sections);
+  const customFields = parseCustomSections(sections);
   const skills =
     sectionText(sections, 'skills') ||
     sections
@@ -617,6 +692,8 @@ export const parseResumeText = (source: string, format: ResumeImportFormat = 'te
   if (internship.length) result.internship = internship;
   if (projects.length) result.projects = projects;
   if (research.length) result.research = research;
+  if (openSource.length) result.openSource = openSource;
+  if (customFields.length) result.customFields = customFields;
   if (skills) result.skills = skills;
   if (languages) result.languages = languages;
   if (awards) result.awards = awards;
@@ -695,6 +772,7 @@ export const mergeParsedProfile = (
     internship: mergeArray(current.internship, parsed.internship, ['organization', 'startDate', 'endDate']),
     projects: mergeArray(current.projects, parsed.projects, ['name', 'startDate', 'endDate']),
     research: mergeArray(current.research, parsed.research, ['name', 'startDate', 'endDate']),
+    openSource: mergeArray(current.openSource, parsed.openSource, ['name', 'startDate', 'endDate']),
     customFields: mergeArray(current.customFields, parsed.customFields, ['label'], 'append'),
     skills: meaningful(parsed.skills) ? parsed.skills : current.skills,
     languages: meaningful(parsed.languages) ? parsed.languages : current.languages,
