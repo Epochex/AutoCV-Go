@@ -5,54 +5,41 @@ cd /d "%~dp0"
 set "NO_OPEN="
 if /i "%~1"=="--no-open" set "NO_OPEN=1"
 
-where node.exe >nul 2>nul
-if errorlevel 1 (
-  echo [AutoCV Go] Node.js was not found.
-  echo Install Node.js 22 LTS from https://nodejs.org/ and run this file again.
-  pause
-  exit /b 1
+set "NODE_VERSION=v22.23.1"
+set "TOOLS_DIR=%CD%\.autocv-tools"
+set "NODE_DIR=%TOOLS_DIR%\node-%NODE_VERSION%-win-x64"
+set "NODE_ZIP=%TOOLS_DIR%\node-%NODE_VERSION%-win-x64.zip"
+set "NODE_URL=https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip"
+
+if not exist "%NODE_DIR%\npm.cmd" (
+  if exist "%NODE_DIR%" rmdir /s /q "%NODE_DIR%"
+  if exist "%NODE_ZIP%" del /q "%NODE_ZIP%"
+  echo [AutoCV Go] Downloading the private Node.js %NODE_VERSION% runtime...
+  if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%NODE_URL%' -OutFile '%NODE_ZIP%'; Expand-Archive -LiteralPath '%NODE_ZIP%' -DestinationPath '%TOOLS_DIR%' -Force"
+  if errorlevel 1 goto :failed
+  del /q "%NODE_ZIP%" >nul 2>nul
 )
 
-where npm.cmd >nul 2>nul
-if errorlevel 1 (
-  echo [AutoCV Go] npm was not found. Reinstall Node.js 22 LTS from https://nodejs.org/.
-  pause
-  exit /b 1
-)
+if not exist "%NODE_DIR%\npm.cmd" goto :failed
 
+set "PATH=%NODE_DIR%;%PATH%"
+set "NPM_CONFIG_UPDATE_NOTIFIER=false"
+set "NPM_CONFIG_FUND=false"
 if not exist "%APPDATA%\npm" mkdir "%APPDATA%\npm"
 
-node.exe -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)"
-if errorlevel 1 goto :use_temporary_runtime
-
-where pnpm.cmd >nul 2>nul
-if errorlevel 1 goto :use_temporary_pnpm
-set "PNPM=call pnpm.cmd"
-goto :pnpm_ready
-
-:use_temporary_runtime
-echo [AutoCV Go] The installed Node.js is too old for this project.
-echo [AutoCV Go] Using temporary Node.js 22 and pnpm 10 through npm...
-set "PNPM=call npm.cmd exec --yes --package=node@22 --package=pnpm@10 -- pnpm"
-goto :pnpm_ready
-
-:use_temporary_pnpm
-echo [AutoCV Go] pnpm is not installed. Using temporary pnpm 10 through npm...
-set "PNPM=call npm.cmd exec --yes --package=pnpm@10 -- pnpm"
-
-:pnpm_ready
-
-%PNPM% --version >nul
+echo [AutoCV Go] Using private Node.js %NODE_VERSION% and pnpm 10.
+call "%NODE_DIR%\npm.cmd" exec --yes --package=pnpm@10 -- pnpm --version >nul
 if errorlevel 1 goto :failed
 
 echo [AutoCV Go] Installing dependencies...
-%PNPM% install
+call "%NODE_DIR%\npm.cmd" exec --yes --package=pnpm@10 -- pnpm install
 if errorlevel 1 goto :failed
 
 if not exist "node_modules\.bin\wxt.cmd" goto :failed
 
 echo [AutoCV Go] Building the browser extension...
-%PNPM% build
+call "%NODE_DIR%\npm.cmd" exec --yes --package=pnpm@10 -- pnpm build
 if errorlevel 1 goto :failed
 
 set "OUTPUT=%CD%\.output\chrome-mv3"

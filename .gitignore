@@ -4,3 +4,4 @@ node_modules/
 .wxt-runner/
 output/
 *.log
+.autocv-tools/
